@@ -55,6 +55,15 @@ npx skills add HKUSTDial/Supervisor-Skills@vibe-research-workflow -g -y
 - `npx skills add` 默认落实体目录；装完按布局约定归位：实体移入 `~/.cc-switch/skills/`，`~/.agents/skills/` 与 `~/.claude/skills/` 建符号链接
 - 建/装 skill 前遵守查重顺序：先查本地（含插件目录），再查网络，最后才新建；上游 skill 不在原文件里改
 
+## 更新（线上环境改了之后）
+
+```bash
+bash ~/github/agent-workflow/sync.sh   # 线上 → 仓库，展示 diff
+# 检查后：git commit + push
+```
+
+本机 `~/.claude/CLAUDE.md` 与 `~/.cc-switch/skills/` 是运行实体，仓库是它们的发布副本；二者不靠链接绑定，靠 sync.sh 保持同步。
+
 ## 约定
 
 - 本仓只收自建 skill 与全局规范；上游 skill 一律用安装命令引用
