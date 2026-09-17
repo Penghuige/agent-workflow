@@ -1,12 +1,13 @@
 # agent-workflow
 
-个人全局规范与三个自建 skill 的发布副本。**本机运行实体是日常编辑源，仓库用于审阅、版本管理和分发。** 上游套件只引用，不改写或打包进本仓。
+个人全局规范与四个自建 skill 的发布副本。**本机运行实体是日常编辑源，仓库用于审阅、版本管理和分发。** 上游套件只引用，不改写或打包进本仓。
 
 ## 维护边界
 
 - `deep-deliberation`：高代价决策的独立视角与交叉批评；视角库、笔记契约按需读取。
 - `auditing-skills`：技能体检、失败复盘与分级验证；标点整理、描述修改和流程变更采用不同检查。
 - `project-deep-dive`：围绕学习靶心还原项目设计，复用已有证据和笔记。
+- `code-audit`：存量代码的分镜头覆盖审查；机械化先扫 + 不变量清单 + 并行镜头 + 证据分级。
 - `AGENTS.md`：跨项目的沟通、授权、验证和技能选择规则；项目特有约束仍由用户维护在项目内。
 
 本次工作流调整依据 [OpenAI 关于 skills、AGENTS.md 与任务边界的建议](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)：减少无关常驻指令，按需读取资料，并明确何时继续、何时停下。不绑定特定模型，也不移除用户的安全与写入授权边界。
@@ -22,7 +23,7 @@ bash ~/github/agent-workflow/install.sh
 
 | 内容 | 本机编辑源 | 宿主入口 |
 |---|---|---|
-| 本仓三个 skills | `~/.cc-switch/skills/<name>/` 实体目录 | `~/.agents/skills/`、`~/.claude/skills/` 中的链接 |
+| 本仓四个 skills | `~/.cc-switch/skills/<name>/` 实体目录 | `~/.agents/skills/`、`~/.claude/skills/` 中的链接 |
 | 全局规范 | `~/.claude/CLAUDE.md` 实体文件 | `~/.agents/AGENTS.md`、`$CODEX_HOME/AGENTS.md` 的链接；未设置 CODEX_HOME 时为 `~/.codex/AGENTS.md` |
 
 安装仅在编辑源缺失时从仓库复制；已有编辑源保留，不用仓库旧版本覆盖本机工作。宿主已有同目标链接时不变；实体文件、不同目标链接、断链均保留并报告冲突。旧版安装若让编辑源链接回仓库，会报告布局不一致，不自动迁移。冲突返回非零，不能当作完整安装成功。
@@ -47,7 +48,8 @@ bash ~/github/agent-workflow/sync.sh --apply
 - 先检查全部来源、资源路径和将写入目标的 Git 状态；相关 staged/unstaged/untracked/ignored 冲突阻止整个应用，无关工作区改动不阻断。
 - 不跟随技能树内的符号链接，写入目标含硬链接时停止；不可读资源目录按错误处理，拒绝未审核的根路径、隐藏文件、缓存及常见凭据文件名。路径规则不检测正文中的秘密；公开内容仍需在预览时人工/agent审阅。
 - 目标独有文件保留并报告 unresolved；先决定其用途，不能把保留旧文件称为已完全同步。同源复制为 no-op，但会报告旧布局问题并返回非零。
-- 写前备份全部将被覆盖的文件，记录新增路径，放在 `~/.local/state/agent-workflow/backups/sync-*`。预检失败零目标写入；写入阶段发生 I/O 故障可能部分完成，需据备份检查恢复，不承诺跨文件事务回滚。
+- 写前备份全部将被覆盖的文件，记录新增路径，放在 `~/.local/state/agent-workflow/backups/sync-*`（只保留最近 10 份）。预检失败零目标写入；写入用临时文件原子替换，中途 I/O 故障自动回滚本次已写文件，备份仍可人工检查。
+- `--apply` 要求内容与最近一次预览逐字节一致（preview-manifest 哈希校验）；预览后源文件再变化会被拒绝，需重新预览。
 - 不执行 `git add`、commit 或 push。检查 `git diff` 后只暂存本任务文件；本地提交授权不包含 push。
 
 仓库拉取更新后，不用 install 强制覆盖已有运行实体。先比较发布副本与本机改动，批准需要的合并范围后再更新本机；当前工具不提供无人值守的反向覆盖。

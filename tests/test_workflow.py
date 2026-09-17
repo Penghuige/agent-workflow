@@ -113,6 +113,7 @@ class WorkflowTest(unittest.TestCase):
         self.bootstrap()
         self.put(self.repo / 'unrelated', 'dirty')
         self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
         self.run_script('sync', '--apply')
 
     def test_related_dirty_prevents_all_writes(self):
@@ -231,6 +232,95 @@ class WorkflowTest(unittest.TestCase):
         self.bootstrap()
         self.assertTrue((self.home / 'custom-codex/AGENTS.md').is_symlink())
         self.assertFalse((self.home / '.codex').exists())
+
+    def test_relative_codex_home_rejected(self):
+        self.env['CODEX_HOME'] = 'relative/path'
+        out = self.run_script('install', ok=False)
+        self.assertIn('CODEX_HOME', out)
+
+    def test_credential_name_matching(self):
+        self.bootstrap()
+        self.put(self.source / 'scripts/tokenizer.py', 'ok')
+        self.run_script('sync')
+        self.run_script('sync', '--apply')  # tokenizer 不应被凭据规则误伤
+        self.assertEqual((self.repo / 'skills/demo/scripts/tokenizer.py').read_text(), 'ok')
+        for bad in ('assets/token.json', 'assets/secrets.env', 'assets/my-secret.txt'):
+            self.put(self.source / bad, 'x')
+            self.assertIn('unreviewed publication path', self.run_script('sync', '--apply', ok=False))
+            (self.source / bad).unlink()
+
+    def test_preview_apply_binding(self):
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'v1')
+        self.run_script('sync')  # preview
+        self.put(self.source / 'SKILL.md', 'v2-sneaked')  # preview 之后源被改
+        before = self.snapshot()
+        out = self.run_script('sync', '--apply', ok=False)
+        self.assertIn('changed since preview', out)
+        self.assertEqual(before, self.snapshot())
+        self.run_script('sync')  # 重新 preview
+        self.run_script('sync', '--apply')  # 内容一致后放行
+        self.assertEqual((self.repo / 'skills/demo/SKILL.md').read_text(), 'v2-sneaked')
+
+    def test_apply_rollback_on_mid_write_failure(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('workflow', ROOT / 'scripts/workflow.py')
+        wf = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wf)
+        base = Path(self.tmp.name) / 'rb'
+        base.mkdir()
+        good_src = base / 'good-src'
+        good_src.write_text('new-good')
+        good_dst = base / 'good-dst'
+        good_dst.write_text('old-good')
+        bad_parent = base / 'not-a-dir'
+        bad_parent.write_text('x')
+        bad_src = base / 'bad-src'
+        bad_src.write_text('new-bad')
+        writes = [
+            (good_src, good_dst, b'old-good', b'new-good', 0o644),
+            (bad_src, bad_parent / 'never', None, b'new-bad', None),
+        ]
+        with self.assertRaises(OSError):
+            wf.write_all(writes)
+        self.assertEqual(good_dst.read_bytes(), b'old-good')  # 已回滚
+        self.assertFalse((bad_parent / 'never').exists())
+
+    def test_backup_pruning(self):
+        self.bootstrap()
+        for i in range(12):
+            self.put(self.source / 'SKILL.md', f'v{i}')
+            self.run_script('sync')
+            self.run_script('sync', '--apply')
+            self.git('add', '.')
+            self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', f'v{i}')
+        backups = list((self.home / '.local/state/agent-workflow/backups').glob('sync-*'))
+        self.assertLessEqual(len(backups), 10)
+
+    def test_target_cruft_does_not_block(self):
+        self.bootstrap()
+        self.put(self.repo / 'skills/demo/.DS_Store', 'cruft')
+        self.put(self.repo / 'skills/demo/notes/scratch.md', 'cruft')
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
+        self.run_script('sync', '--apply')
+        self.assertEqual((self.repo / 'skills/demo/SKILL.md').read_text(), 'changed')
+
+    def test_missing_rules_file_does_not_block_skills(self):
+        self.bootstrap()
+        (self.home / '.claude/CLAUDE.md').unlink()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
+        out = self.run_script('sync', '--apply')
+        self.assertEqual((self.repo / 'skills/demo/SKILL.md').read_text(), 'changed')
+        self.assertIn('CLAUDE.md', out)
+
+    def test_existing_source_incomplete_is_conflict(self):
+        self.bootstrap()
+        self.put(self.repo / 'skills/demo/references/r.md', 'doc')  # 仓库侧多出文件，本地源没有
+        out = self.run_script('install', ok=False)
+        self.assertIn('incomplete', out)
+
 
 
 if __name__ == '__main__':
