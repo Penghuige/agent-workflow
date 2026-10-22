@@ -22,7 +22,9 @@ class WorkflowTest(unittest.TestCase):
             shutil.copy2(ROOT / name, self.repo / name)
         self.put(self.repo / 'AGENTS.md', 'rules\n')
         self.put(self.repo / 'skills/demo/SKILL.md', 'skill\n')
-        self.env = dict(os.environ, HOME=str(self.home), CODEX_HOME=str(self.home / '.codex'))
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+        self.env.update(HOME=str(self.home), CODEX_HOME=str(self.home / '.codex'),
+                        GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
         self.git('init', '-q')
         self.git('add', '.')
         self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'initial')
@@ -45,6 +47,166 @@ class WorkflowTest(unittest.TestCase):
 
     def snapshot(self):
         return {str(p.relative_to(self.repo)): p.read_bytes() for p in self.repo.rglob('*') if p.is_file()}
+
+    def load_workflow(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('workflow', ROOT / 'scripts/workflow.py')
+        wf = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wf)
+        return wf
+
+    def test_fixture_isolates_inherited_git_environment(self):
+        from unittest.mock import patch
+        external_index = self.home / 'external-index'
+        shutil.copy2(self.repo / '.git/index', external_index)
+        before = external_index.read_bytes()
+        nested = WorkflowTest('test_empty_and_repeat_install')
+        self.addCleanup(nested.doCleanups)
+        with patch.dict(os.environ, {'GIT_INDEX_FILE': str(external_index),
+                                     'GIT_CONFIG_GLOBAL': str(self.home / 'outside-config')}):
+            nested.setUp()
+        self.assertEqual(external_index.read_bytes(), before,
+                         'fixture modified an index outside its own repository')
+        self.assertNotIn('GIT_INDEX_FILE', nested.env)
+        self.assertEqual(nested.env['GIT_CONFIG_GLOBAL'], os.devnull)
+        self.assertEqual(nested.env['GIT_CONFIG_NOSYSTEM'], '1')
+        self.assertEqual(nested.git('rev-parse', '--show-toplevel').decode().strip(), str(nested.repo))
+
+    def test_install_preserves_existing_temporary_directory(self):
+        marker = self.source.parent / 'demo.tmp-install/user-data'
+        self.put(marker, 'keep')
+        self.bootstrap()
+        self.assertTrue(marker.exists(), 'installer deleted an unowned directory')
+        self.assertEqual(marker.read_text(), 'keep')
+
+    def test_preview_rejects_source_mode_change(self):
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
+        (self.source / 'SKILL.md').chmod(0o755)
+        self.run_script('sync', '--apply', ok=False)
+        self.assertEqual((self.repo / 'skills/demo/SKILL.md').read_text(), 'skill\n')
+
+    def test_preview_rejects_committed_target_changes(self):
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
+        self.put(self.repo / 'skills/demo/SKILL.md', 'new committed work')
+        self.git('add', '.')
+        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'target change')
+        self.run_script('sync', '--apply', ok=False)
+        self.assertEqual((self.repo / 'skills/demo/SKILL.md').read_text(), 'new committed work')
+
+    def test_preview_rejects_target_mode_change(self):
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
+        self.git('config', 'core.filemode', 'false')
+        (self.repo / 'skills/demo/SKILL.md').chmod(0o600)
+        self.run_script('sync', '--apply', ok=False)
+        self.assertEqual((self.repo / 'skills/demo/SKILL.md').stat().st_mode & 0o777, 0o600)
+
+    def test_preview_rejects_removed_planned_path(self):
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.put(self.source / 'assets/new.txt', 'new')
+        self.run_script('sync')
+        (self.source / 'assets/new.txt').unlink()
+        self.run_script('sync', '--apply', ok=False)
+        self.assertEqual((self.repo / 'skills/demo/SKILL.md').read_text(), 'skill\n')
+
+    def test_preview_rejects_partial_plan_becoming_noop(self):
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.put(self.home / '.claude/CLAUDE.md', 'changed rules')
+        self.run_script('sync')
+        self.put(self.source / 'SKILL.md', 'skill\n')
+        self.run_script('sync', '--apply', ok=False)
+        self.assertEqual((self.repo / 'AGENTS.md').read_text(), 'rules\n')
+
+    def test_successful_apply_can_be_repeated(self):
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
+        self.run_script('sync', '--apply')
+        self.assertIn('unchanged:', self.run_script('sync', '--apply'))
+
+    def test_preview_cannot_be_reused_in_another_repository(self):
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
+        other = self.repo.parent / 'other-repo'
+        shutil.copytree(self.repo, other)
+        self.repo = other
+        self.run_script('sync', '--apply', ok=False)
+        self.assertEqual((other / 'skills/demo/SKILL.md').read_text(), 'skill\n')
+
+    def test_manifest_links_rejected_without_overwriting_unrelated_file(self):
+        self.bootstrap()
+        manifest = self.home / '.local/state/agent-workflow/preview-manifest.json'
+        manifest.parent.mkdir(parents=True)
+        unrelated = self.home / 'unrelated'
+        unrelated.write_text('keep')
+        for kind in ('symlink', 'hardlink'):
+            with self.subTest(kind=kind):
+                if kind == 'symlink':
+                    manifest.symlink_to(unrelated)
+                else:
+                    os.link(unrelated, manifest)
+                try:
+                    self.run_script('sync', ok=False)
+                    self.assertEqual(unrelated.read_text(), 'keep')
+                finally:
+                    manifest.unlink()
+                    unrelated.write_text('keep')
+
+    def test_atomic_write_preserves_unowned_temp_and_cleans_failed_temp(self):
+        from unittest.mock import patch
+        wf = self.load_workflow()
+        dst = self.home / 'target'
+        dst.write_text('old')
+        unrelated = self.home / 'unrelated'
+        unrelated.write_text('keep')
+        predictable = self.home / f'.target.tmp-{os.getpid()}'
+        predictable.symlink_to(unrelated)
+        before = set(self.home.iterdir())
+        with patch.object(wf.os, 'replace', side_effect=OSError('injected replace failure')):
+            with self.assertRaises(OSError):
+                wf.atomic_write(dst, b'new', 0o644)
+        self.assertEqual(unrelated.read_text(), 'keep')
+        self.assertEqual(dst.read_text(), 'old')
+        self.assertEqual(set(self.home.iterdir()), before)
+        self.assertTrue(predictable.is_symlink())
+
+    def test_rollback_failure_still_restores_other_paths_and_reports_backup(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        import io
+        wf = self.load_workflow()
+        self.bootstrap()
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.put(self.source / 'assets/new.txt', 'new')
+        self.put(self.home / '.claude/CLAUDE.md', 'changed rules')
+        self.run_script('sync')
+        original = wf.atomic_write
+        def fail_rules(dst, data, mode):
+            if dst == self.repo / 'AGENTS.md':
+                raise OSError('injected write failure')
+            return original(dst, data, mode)
+        original_unlink = Path.unlink
+        def fail_new_unlink(path, *args, **kwargs):
+            if path == self.repo / 'skills/demo/assets/new.txt':
+                raise OSError('injected restore failure')
+            return original_unlink(path, *args, **kwargs)
+        output = io.StringIO()
+        with patch.object(wf, 'atomic_write', side_effect=fail_rules), patch.object(Path, 'unlink', fail_new_unlink), redirect_stdout(output):
+            self.assertEqual(wf.sync(self.repo, self.home, True), 1)
+        self.assertEqual((self.repo / 'skills/demo/SKILL.md').read_text(), 'skill\n')
+        self.assertTrue((self.repo / 'skills/demo/assets/new.txt').exists())
+        self.assertIn('rollback failed:', output.getvalue())
+        self.assertIn('restored:', output.getvalue())
+        self.assertIn('备份在', output.getvalue())
+        self.assertNotIn('已回滚本次已写文件', output.getvalue())
 
     def test_empty_and_repeat_install(self):
         self.bootstrap()
@@ -278,13 +440,45 @@ class WorkflowTest(unittest.TestCase):
         bad_src = base / 'bad-src'
         bad_src.write_text('new-bad')
         writes = [
-            (good_src, good_dst, b'old-good', b'new-good', 0o644),
-            (bad_src, bad_parent / 'never', None, b'new-bad', None),
+            (good_src, good_dst, b'old-good', b'new-good', 0o644, 0o644),
+            (bad_src, bad_parent / 'never', None, b'new-bad', None, 0o644),
         ]
         with self.assertRaises(OSError):
             wf.write_all(writes)
         self.assertEqual(good_dst.read_bytes(), b'old-good')  # 已回滚
         self.assertFalse((bad_parent / 'never').exists())
+
+    def test_backup_pruning_preserves_unowned_directories(self):
+        self.bootstrap()
+        backup_root = self.home / '.local/state/agent-workflow/backups'
+        markers = []
+        for i in range(10):
+            marker = backup_root / f'sync-user-{i}' / 'user-data'
+            self.put(marker, 'keep')
+            markers.append(marker)
+        self.put(self.source / 'SKILL.md', 'changed')
+        self.run_script('sync')
+        self.run_script('sync', '--apply')
+        for marker in markers:
+            self.assertTrue(marker.exists(), f'unowned backup directory removed: {marker}')
+            self.assertEqual(marker.read_text(), 'keep')
+
+    def test_failed_rules_install_leaves_no_partial_source_and_can_retry(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        import io
+        self.bootstrap()
+        rules = self.home / '.claude/CLAUDE.md'
+        rules.unlink()
+        (self.repo / 'AGENTS.md').chmod(0o640)
+        wf = self.load_workflow()
+        with patch.dict(os.environ, self.env), patch.object(wf.os, 'chmod', side_effect=OSError('injected mode failure')), patch.object(wf.os, 'fchmod', side_effect=OSError('injected mode failure')), redirect_stdout(io.StringIO()):
+            self.assertEqual(wf.install(self.repo, self.home), 1)
+        self.assertFalse(rules.exists(), 'failed install published a partial editing source')
+        self.assertEqual(list(rules.parent.glob('.CLAUDE.md.tmp-*')), [])
+        self.run_script('install')
+        self.assertEqual(rules.read_text(), 'rules\n')
+        self.assertEqual(rules.stat().st_mode & 0o777, 0o640)
 
     def test_backup_pruning(self):
         self.bootstrap()

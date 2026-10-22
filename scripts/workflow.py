@@ -17,6 +17,8 @@ ROOT_FILES = {'SKILL.md', 'README.md', 'LICENSE', 'LICENSE.md', 'LICENSE.txt'}
 PRIVATE_NAMES = {'.git', '__pycache__', '.pytest_cache', 'node_modules', 'memory', 'notes', 'logs', 'cache', '.DS_Store'}
 CRED_WORDS = ('secret', 'secrets', 'credential', 'credentials', 'token', 'tokens')
 GIT_STRIP = {'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_PREFIX'}
+BACKUP_MARKER = '.agent-workflow-backup'
+BACKUP_OWNER = b'agent-workflow sync backup v1\n'
 
 
 def exists(path):
@@ -114,28 +116,50 @@ def resolve_codex_home(home):
 
 
 def atomic_write(dst, data, mode):
-    tmp = dst.parent / f'.{dst.name}.tmp-{os.getpid()}'
-    tmp.write_bytes(data)
-    if mode is not None:
-        os.chmod(tmp, mode)
-    os.replace(tmp, dst)
+    safe_parents(dst)
+    if exists(dst):
+        regular(dst)
+    fd, name = tempfile.mkstemp(prefix=f'.{dst.name}.tmp-', dir=dst.parent)
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            if mode is not None:
+                os.fchmod(stream.fileno(), mode)
+        os.replace(tmp, dst)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+class WriteFailure(OSError):
+    def __init__(self, cause, restored, failed):
+        super().__init__(str(cause))
+        self.restored = restored
+        self.failed = failed
 
 
 def write_all(writes):
     written = []
     try:
-        for src, dst, old, new, old_mode in writes:
+        for src, dst, old, new, old_mode, new_mode in writes:
             dst.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write(dst, new, stat.S_IMODE(src.stat().st_mode))
+            atomic_write(dst, new, new_mode)
             written.append((dst, old, old_mode))
             report('installed', dst)
-    except OSError:
+    except (OSError, ValueError) as exc:
+        restored, failed = [], []
         for dst, old, old_mode in reversed(written):
-            if old is None:
-                dst.unlink(missing_ok=True)
-            else:
-                atomic_write(dst, old, old_mode)
-        raise
+            try:
+                if old is None:
+                    dst.unlink(missing_ok=True)
+                else:
+                    atomic_write(dst, old, old_mode)
+                restored.append(dst)
+                report('restored', dst)
+            except (OSError, ValueError) as rollback_error:
+                failed.append(dst)
+                report('rollback failed', dst, str(rollback_error))
+        raise WriteFailure(exc, restored, failed) from exc
 
 
 def install(repo, home):
@@ -166,16 +190,14 @@ def install(repo, home):
                 regular(src)
             dst.parent.mkdir(parents=True, exist_ok=True)
             if directory:
-                tmp = dst.parent / (dst.name + '.tmp-install')
-                shutil.rmtree(tmp, ignore_errors=True)
+                tmp = Path(tempfile.mkdtemp(prefix=dst.name + '.tmp-install-', dir=dst.parent))
                 try:
-                    shutil.copytree(src, tmp)
+                    shutil.copytree(src, tmp, dirs_exist_ok=True)
                     os.replace(tmp, dst)
-                except OSError:
+                finally:
                     shutil.rmtree(tmp, ignore_errors=True)
-                    raise
             else:
-                shutil.copy2(src, dst)
+                atomic_write(dst, src.read_bytes(), stat.S_IMODE(src.stat().st_mode))
             report('installed', dst)
             return True
         except (ValueError, OSError) as exc:
@@ -210,8 +232,20 @@ def install(repo, home):
     return int(failed)
 
 
+def owned_backup(path):
+    if path.is_symlink() or not path.is_dir() or not path.name.startswith('sync-'):
+        return False
+    marker = path / BACKUP_MARKER
+    try:
+        regular(marker)
+        return marker.read_bytes() == BACKUP_OWNER
+    except (ValueError, OSError):
+        return False
+
+
 def sync(repo, home, apply):
     writes, errors, extras = [], [], []
+    entries = {}
     def compare(src, dst):
         regular(src)
         safe_parents(dst)
@@ -225,9 +259,15 @@ def sync(repo, home, apply):
             old_mode = stat.S_IMODE(dst.stat().st_mode)
         new = src.read_bytes()
         old = dst.read_bytes() if exists(dst) else None
-        if old == new and old_mode == stat.S_IMODE(src.stat().st_mode):
+        new_mode = stat.S_IMODE(src.stat().st_mode)
+        entries[str(dst.relative_to(repo))] = {
+            'source': str(src.resolve()),
+            'before': None if old is None else {'sha256': hashlib.sha256(old).hexdigest(), 'mode': old_mode},
+            'after': {'sha256': hashlib.sha256(new).hexdigest(), 'mode': new_mode},
+        }
+        if old == new and old_mode == new_mode:
             return
-        writes.append((src, dst, old, new, old_mode))
+        writes.append((src, dst, old, new, old_mode, new_mode))
     try:
         names = declared(repo)
         for name in names:
@@ -256,7 +296,7 @@ def sync(repo, home, apply):
                 compare(src, dst)
             except (ValueError, OSError) as exc:
                 errors.append(str(exc))
-        for _, dst, _, _, _ in writes:
+        for _, dst, _, _, _, _ in writes:
             result = subprocess.run(['git', '-C', str(repo), 'status', '--porcelain=v1', '--untracked-files=all', '--ignored', '--', str(dst.relative_to(repo))], capture_output=True, text=True, env=git_env())
             if result.returncode:
                 errors.append('cannot inspect git state')
@@ -264,11 +304,11 @@ def sync(repo, home, apply):
                 errors.append(f'git staged/unstaged/untracked/ignored conflict: {dst}')
     except (ValueError, OSError) as exc:
         errors.append(str(exc))
-    for src, dst, old, new, _ in writes:
+    for src, dst, old, new, old_mode, new_mode in writes:
         rel = dst.relative_to(repo)
         report('update' if old is not None else 'NEW publication path', rel)
-        if old is not None and stat.S_IMODE(src.stat().st_mode) != stat.S_IMODE(dst.stat().st_mode):
-            print(f'mode: {stat.S_IMODE(dst.stat().st_mode):o} -> {stat.S_IMODE(src.stat().st_mode):o}')
+        if old is not None and new_mode != old_mode:
+            print(f'mode: {old_mode:o} -> {new_mode:o}')
         try:
             print(''.join(difflib.unified_diff((old or b'').decode('utf-8').splitlines(True), new.decode('utf-8').splitlines(True), fromfile=f'repo/{rel}', tofile=f'local/{rel}')), end='')
         except UnicodeDecodeError:
@@ -284,51 +324,69 @@ def sync(repo, home, apply):
     safe_parents(state_dir / 'placeholder')
     state_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = state_dir / 'preview-manifest.json'
-    current = {str(dst.relative_to(repo)): hashlib.sha256(new).hexdigest() for _, dst, _, new, _ in writes}
+    if exists(manifest_path):
+        regular(manifest_path)
+    repo_stat = repo.stat()
+    current = {
+        'version': 2,
+        'repository': {'path': str(repo.resolve()), 'device': repo_stat.st_dev, 'inode': repo_stat.st_ino},
+        'entries': entries,
+        'writes': sorted(str(dst.relative_to(repo)) for _, dst, _, _, _, _ in writes),
+    }
     if not apply:
-        manifest_path.write_text(json.dumps(current, indent=1))
-        print(f'Preview only: {len(writes)} change(s), zero writes. Review this preview before --apply.')
+        atomic_write(manifest_path, json.dumps(current, indent=1).encode(), 0o600)
+        print(f'Preview only: {len(writes)} change(s), zero destination writes. Review this preview before --apply.')
         return 0
     print('--apply asserts that you approved the preview shown by sync.sh.')
-    if not writes:
-        print('unchanged: publication copies already match.')
-        return 0
     saved = None
-    if manifest_path.exists():
+    if exists(manifest_path):
         try:
             saved = json.loads(manifest_path.read_text())
         except (ValueError, OSError):
-            saved = None
+            pass
     if saved is None:
+        if not writes:
+            print('unchanged: publication copies already match.')
+            return 0
         report('conflict', 'apply', '没有找到预览记录；先运行 sync 预览再 --apply')
         return 1
-    mismatched = [rel for rel, digest in current.items() if saved.get(rel) != digest]
-    if mismatched:
-        for rel in mismatched:
-            report('conflict', rel, 'changed since preview; 请重新预览')
+    if saved != current:
+        report('conflict', 'apply', 'changed since preview (repository, paths, content or mode); 请重新预览')
         return 1
+    if not writes:
+        print('unchanged: publication copies already match.')
+        return 0
     backup_root = home / '.local/state/agent-workflow/backups'
     safe_parents(backup_root / 'placeholder')
     if backup_root.resolve().is_relative_to(repo.resolve()):
         raise ValueError('backup directory must be outside repository')
     backup_root.mkdir(parents=True, exist_ok=True)
     backup = Path(tempfile.mkdtemp(prefix='sync-', dir=backup_root))
-    stale = sorted((p for p in backup_root.iterdir() if p.is_dir() and p.name.startswith('sync-')), key=lambda p: p.stat().st_mtime)
-    for old_backup in stale[:-10]:
-        shutil.rmtree(old_backup, ignore_errors=True)
-    for _, dst, old, _, _ in writes:
+    for _, dst, old, _, _, _ in writes:
         if old is not None:
             out = backup / dst.relative_to(repo)
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(dst, out)
-    (backup / 'new-paths.txt').write_text(''.join(str(dst.relative_to(repo)) + '\n' for _, dst, old, _, _ in writes if old is None))
+    (backup / 'new-paths.txt').write_text(''.join(str(dst.relative_to(repo)) + '\n' for _, dst, old, _, _, _ in writes if old is None))
+    atomic_write(backup / BACKUP_MARKER, BACKUP_OWNER, 0o600)
+    stale = sorted((p for p in backup_root.iterdir() if owned_backup(p)), key=lambda p: p.stat().st_mtime)
+    for old_backup in stale[:-10]:
+        shutil.rmtree(old_backup, ignore_errors=True)
     report('backup', backup)
     try:
         write_all(writes)
-    except OSError as exc:
-        report('conflict', 'apply', f'{exc}；已回滚本次已写文件；备份在 {backup}')
+    except WriteFailure as exc:
+        report('conflict', 'apply', f'{exc}；恢复成功 {len(exc.restored)} 项，恢复失败 {len(exc.failed)} 项；备份在 {backup}')
         return 1
-    manifest_path.write_text(json.dumps(current, indent=1))
+    # Store the completed state so an immediate repeated apply is a no-op.
+    for entry in entries.values():
+        entry['before'] = dict(entry['after'])
+    current['writes'] = []
+    try:
+        atomic_write(manifest_path, json.dumps(current, indent=1).encode(), 0o600)
+    except (OSError, ValueError) as exc:
+        report('conflict', 'manifest', f'发布文件已写入，完成记录更新失败：{exc}；备份在 {backup}；重新预览后再 apply')
+        return 1
     print('Applied; git index unchanged. Review git diff before committing.')
     return 0
 
