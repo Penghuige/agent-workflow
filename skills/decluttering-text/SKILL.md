@@ -17,8 +17,8 @@ description: 精简和审改 skills、AGENTS/README、技术文档、注释、�
 | 深度改写 | 结构、段落顺序、术语统一、语气 | 先方案，批准后执行 |
 
 用户只要求“检查/看看”时用审计；要“清理/精简/去味”且文件已存在时用受控精简；
-要“重写/重构/大幅精简”时用深度改写。超过 5 个文件或预计改动超过 20% 行时，
-先出方案或分批确认。
+要“重写/重构/大幅精简”时用深度改写。超过 5 个文件，或任一单文件预计改动超过其
+20% 行时，先出方案或分批确认。
 
 不处理：判断作者是否使用 AI、规避检测器、论文专项润色、翻译、从零写作、
 代码行为修改、事实核查代替来源阅读。
@@ -34,8 +34,8 @@ description: 精简和审改 skills、AGENTS/README、技术文档、注释、�
    换序后仍留在同一命题上。
 2. **保护区可检查、不静默改写**：frontmatter、代码块、行内代码、命令、URL、路径、
    表格数据、配置、引语、数学公式和 i18n 占位符默认不改写；检查结果可以报告。
-   `description` 审查是显式例外，改后必须跑 YAML 解析和 `skills-ref validate`
-   （若可用）。
+   `description` 审查是显式例外，改后必须跑 YAML 解析、`skills-ref validate`
+   （若可用）和 auditing-skills 的选择测试。
 3. **AI 味只作提示**：词表、破折号、排比、问句标题、被动句、句长和格式都不是
    作者来源证据；只有降低读者价值时才改。
 4. **最小有效修改**：能修一句不重写一段；能标注不猜测；可能改变含义、立场、
@@ -46,6 +46,9 @@ description: 精简和审改 skills、AGENTS/README、技术文档、注释、�
    等价记录；没有则保留或迁移，不默认删除。只删除纯叙事且已有替代证据的内容。
 7. **默认跳过**：生成物、第三方代码、lockfile、minified 文件、二进制、密钥文件和
    不可读路径不编辑；报告跳过原因，不声称全量检查。
+8. **读取边界**：显式扫描根及含 `SKILL.md` 的目录链接可作为受信任入口，记录
+   realpath、去重并防循环。正文锚点只在批准的扫描根内读取，外部目标报告
+   `anchor-unchecked`；显式单文件按用户意图处理，不隐式扩展到其他路径。
 
 ## 流程
 
@@ -54,11 +57,12 @@ description: 精简和审改 skills、AGENTS/README、技术文档、注释、�
 2. **列保留项**：记录事实与限定词、命令/链接/代码、授权边界、未完成待办、术语、
    数学/i18n 占位符和作者声音；它们构成改后核对表。
 3. **先跑项目工具**：检查 `.markdownlint*`、`.vale.ini`、`.editorconfig`、
-   Prettier/ESLint、测试和构建；有则先跑，按项目规则处理。没有时再进入下一步。
-4. **跑本技能扫描器**：`python3 <skill-dir>/scripts/text_hygiene.py <paths>`；
+   Prettier/ESLint、测试和构建；运行与本次改动相关的项目工具，没有时再进入下一步。
+4. **跑本技能扫描器**：`python3 <skill-dir>/scripts/text_hygiene.py <paths>`。
+   运行需要 Python 3.9+；PyYAML 或 tomllib/tomli 缺失时，对应格式报告未检查。
    默认只在 error 时返回 1，`--fail-on warning` 或 `--strict` 才把 warning 当
-   失败。warning 是线索，不是删除许可。用 `--exclude` 跳过生成物/笔记，
-   用 `--summary`/`--json` 汇总。
+   失败；`scan-skipped` 是覆盖信息，不触发失败。warning 是线索，不是删除许可。
+   目录扫描用 `--exclude` 跳过生成物/笔记，用 `--summary`/`--json` 汇总。
 5. **语义审查**：超过一个段落、跨文件或需要说明问题类别时读
    [patterns.md](references/patterns.md)，按 agent 可读性、人类可读性、AI 味
    弱信号、结构/语法和保留边界分组找问题。每条发现给出 `路径:行号`、

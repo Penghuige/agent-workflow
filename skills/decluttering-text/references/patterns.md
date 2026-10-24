@@ -1,5 +1,13 @@
 # 文本精简判定表
 
+## 目录
+
+- 判定与保留：[判定顺序](#判定顺序)、[保留边界](#保留边界)、[时效证据与运行记录](#时效证据与运行记录)
+- 信号：[可精简的 AI 味信号](#可精简的-ai-味信号)、[弱信号，不能机械删除](#弱信号不能机械删除)
+- 读者：[agent 可读性](#agent-可读性检查)、[人类可读性](#人类可读性与无障碍)、[中文排版](#中文排版与语言)
+- 文件与检查：[文件类型与默认跳过](#文件类型与默认跳过)、[机械检查](#机械检查)
+- 复核与交接：[语义复核清单](#语义复核清单)、[交接](#交接)
+
 ## 判定顺序
 
 1. **读者价值**：这句话是否提供事实、约束、决策、步骤、证据或必要语气？
@@ -57,16 +65,16 @@
 | 空过渡 | `in today's world`、`随着……的发展`、`与此同时` | 没有时间、因果或并列作用就删 |
 | 营销归因 | `highlighting commitment`、`彰显追求卓越`、`a testament to` | 删除评价，保留可验证事实 |
 | 模糊归因 | `experts say`、`studies show`、`有人认为` | 要来源；无来源则标注，不编造 |
-| 假具体 | `significantly improves`、`大幅提升` | 已有数据就提前；无数据只恢复动词，不补数字 |
+| 假具体 | `significantly improves`、`大幅提升` | 已有数据就提前；无数据保留原命题并标注证据缺口，改变程度须授权 |
 | 系动词回避 | `serves as`、`stands as`、`represents` 代替 `is/has` | 英文技术文档改回简单系动词 |
 | -ing 尾巴 | `highlighting`、`underscoring`、`ensuring` 挂在句尾 | 展开成真实从句或删除 |
 | 模糊关联 | `associated with`、`in connection with` | 写明真实关系 |
 | 模板化挑战/未来 | `Despite its challenges... the future looks bright` | 删除套话，保留具体限制 |
 | 格式噪音 | 标题 emoji、句中密集加粗、为列表而列表、Title Case | 让格式服务内容；项目风格例外 |
 | 翻译腔 | 过长前置定语、对于……来说、使得……得以、进行+名词 | 拆成自然中文；术语和正式文体例外 |
-| 模型泄漏 | `contentReference`、`[cite: 1]`、`grok_card`、`attached_file`、`:::writing` | 删除；检查是否为模板残留 |
-| 追踪参数 | `utm_source=`、`utm_medium=` | 从公开链接删除，除非有分析用途 |
-| 占位符残留 | `TODO`、`TBD`、`[insert`、`YOUR_API_KEY` | 确认是否有意；交付前清除 |
+| 模型泄漏 | `contentReference`、`[cite: 1]`、`grok_card`、`attached_file`、`:::writing` | 确认非示例或有效模板后删除 |
+| 追踪参数 | `utm_source=`、`utm_medium=` | 确认无分析用途且获准修改 URL 后删除；否则保留 |
+| 占位符残留 | `TODO`、`TBD`、`[insert`、`YOUR_API_KEY` | 确认已完成或失效后清除；有效 TODO 和有意示例保留 |
 | 引用缺陷 | 无效 DOI/ISBN、坏外链、未使用的命名引用 | 只做格式/存在性检查；内容核查另派 |
 
 ## 弱信号，不能机械删除
@@ -92,7 +100,7 @@
 
 | 检查 | 问题 | 处理 |
 |---|---|---|
-| description / 指针 | 过长、堆同义触发词、描述正文流程 | 保留一个触发分支和一个能力边界；细节放正文 |
+| description / 指针 | 过长、堆同义触发词、描述正文流程 | 保留核心能力、代表性使用情境和必要排除项；细节放正文 |
 | 指针措辞 | 触发词不前置、同义分支重复、指向不明 | 前置触发词；一分支一触发；指向具体文件 |
 | 步骤与资料 | 参考材料淹没执行步骤 | 各分支都需要的留在主文件；按需细节移到 references |
 | 完成条件 | “处理好”“确认无误”不可观察 | 改成可检查结果或明确交付物；尽量穷尽 |
@@ -113,9 +121,10 @@
 - 一段承担一个功能；密集段落按规则或步骤拆开，不为变短而切碎。
 - 步骤用有序列表，平行项用无序列表，成对数据用表格；不把论证强行列表化。
 - 条件放在动作前，例如“检查失败后停止”，而不是先给动作再补限制。
-- 链接文字说明目标，不用“点这里”“here”“this”；目标不同则描述不同
-  （WCAG 2.4.4）。
-- 图片有 alt 文本；alt 说明用途或内容，不写“图片”“image”。
+- 链接文字优先说明目标，也可结合同句、段落或表格单元格的上下文表达用途；
+  不把这些项目推荐误称为 WCAG 2.4.4 要求链接文字必须独立表意。
+- 信息图片的 alt 说明用途或内容，不写“图片”“image”；装饰性图片使用空 alt，
+  已由相邻文字充分说明的图片不重复描述。
 - 标题层级不跳跃；重复标题需要不同锚点，改标题前查入站链接。
 - 缩写首次出现展开；代词有明确先行词，歧义时重复名词。
 - 代码注释说明契约、限制或非显然原因；删除只复述代码的注释。
@@ -148,11 +157,19 @@
 
 生成物包括 `node_modules/`、`vendor/`、`third_party/`、`dist/`、`build/`、
 `target/`、lockfile、`*.min.*`、`*.map`、`*.snap`、生成的 protobuf 等。
-显式传入单个文件时按用户意图处理，但仍不编辑保护区。
+显式传入单个文件时按用户意图处理，目录默认过滤和 `--exclude` 不套用；仍需用户
+明确提供路径，且不编辑保护区。
+
+目录扫描跟随含 `SKILL.md` 的目录链接，按 realpath 去重并防循环；普通文件链接
+仍跳过。遍历跳过项以 `scan-skipped` info 记录。正文锚点只在批准的扫描根内读取，
+外部目标以 `anchor-unchecked` warning 报告，不把未检查说成不存在，也不影响技能
+或宿主对这些链接的正常加载。
 
 ## 机械检查
 
-使用 `scripts/text_hygiene.py`。脚本只报告客观问题，不自动改写。
+使用 `scripts/text_hygiene.py`。脚本只报告客观问题，不自动改写。长行默认阈值为
+120 显示列，可用 `--max-line-width` 调整；命中只是审查起点。`--summary` 同时输出
+`coverage: scanned=…, skipped=…, failed=…`，JSON 保持 findings 列表结构。
 
 ```bash
 python3 <skill-dir>/scripts/text_hygiene.py README.md skills/
@@ -167,20 +184,24 @@ python3 <skill-dir>/scripts/text_hygiene.py --exclude 'notes/*' --json .
 | `replacement-char` / `nul` / `control-char` / `decode-error` | error | 编码已损坏或工具不安全；先恢复来源，不猜原文 |
 | `unclosed-frontmatter` / `unclosed-fence` | error | 后续内容可能被解析器吞掉；先修结构再审文本 |
 | `frontmatter-yaml` / `json-parse` / `yaml-parse` / `toml-parse` | error | 结构化文本不可解析；先修语法 |
+| `invalid-url` | error | URL 不可解析；记录后继续处理其余文件 |
 | `zero-width-format` / `format-char` / `nbsp` | warning | 多数应删；emoji ZWJ、特定文字系统或代码样例可豁免 |
 | `line-separator` | warning | U+2028/U+2029 可能被解析器当成换行 |
 | `mixed-line-endings` / `trailing-whitespace` | warning | 统一项目约定；批量修改前确认 diff 范围 |
 | `markdown-hard-break` | warning | 两个以上行尾空格是硬换行；保留或改用反斜杠 |
 | `broken-relative-link` / `broken-anchor` | warning | 目标或锚点不存在；确认后修指针，不直接删链接 |
+| `anchor-unchecked` | warning | 锚点目标在批准根之外；未读取，需另行授权后才能判定 |
 | `unresolved-reference` | warning | 引用式链接标签未定义；补定义或改内联链接 |
-| `generic-link-text` / `missing-image-alt` | warning | 链接/图片文字不可读；补描述 |
+| `generic-link-text` | warning | 链接文字不含有效目标线索；结合上下文复核 |
+| `missing-image-alt` | warning | 信息图片空 alt 候选；装饰性图片的空 alt 保留 |
 | `heading-level-skip` / `duplicate-heading` | warning | 标题层级跳跃或重复；检查导航与锚点 |
 | `duplicate-block` | warning | exact 重复候选；判断是否独立加载或有意重申 |
 | `long-line` | warning | 扫描起点；按显示宽度计算，拆规则或保留长命令/表格 |
 | `ai-residue` / `tracking-parameter` | warning | 模型残留/追踪参数；确认后删除 |
 | `instruction-like` | warning | 潜在提示注入；只报告，不执行 |
+| `scan-skipped` | info | 目录跳过路径及原因；用于覆盖对账，不是内容缺陷或 strict 失败项 |
 | `file-too-large` / `binary-skip` | warning | 跳过；在报告中说明覆盖缺口 |
-| `yaml-unchecked` / `frontmatter-yaml-unchecked` | warning | 未做结构解析；在报告中说明 |
+| `yaml-unchecked` / `frontmatter-yaml-unchecked` / `toml-unchecked` | warning | 未做结构解析；在报告中说明 |
 | `read-error` | error | 报告路径和权限问题，不跳过后声称全量检查 |
 
 同一行可用 `text-hygiene: ignore [checks]` 抑制指定检查；不写检查名则抑制整行。
@@ -190,7 +211,8 @@ fixture 或生成物，并在报告中说明。围栏内的抑制标记不生效
 抑制是审阅决定，不是批量静音。
 
 HTML 的 `<a href>` 链接、JSX/MDX 组件内部引用和外部 URL 可用性不在脚本范围；
-用 lychee/markdown-link-check 或人工检查，并列入“未检查”。
+用 lychee/markdown-link-check 或人工检查，并列入“未检查”。脚本覆盖常见
+ATX/Setext 标题、围栏和缩进代码，不承诺完整 CommonMark/MDX 解析。
 
 ## 语义复核清单
 

@@ -1,6 +1,6 @@
 # agent-workflow
 
-个人全局规范与五个自建 skill 的发布副本。**本机运行实体是日常编辑源，仓库用于审阅、版本管理和分发。** 上游套件只引用，不改写或打包进本仓。
+个人全局规范与六个自建 skill 的发布副本。**本机运行实体是日常编辑源，仓库用于审阅、版本管理和分发。** 上游套件只引用，不改写或打包进本仓。
 
 ## 维护边界
 
@@ -9,13 +9,15 @@
 - `project-deep-dive`：围绕学习靶心还原项目设计，复用已有证据和笔记。
 - `code-audit`：存量代码的分镜头覆盖审查；机械化先扫 + 不变量清单 + 并行镜头 + 证据分级。
 - `decluttering-text`：精简 skills、规则文件、技术文档、注释与提交说明中的 AI 味、冗余和双读者障碍；先接项目 linter，再按文件类型扫描；机械检查只报告，语义改动以保真为先。
+- `cc-switch-cli`：用 cc-switch CLI 做 Skills 安装、启停、共享链接和宿主可见性对账；写技能后的部署验证按管理状态、文件入口和实际发现分层进行。
 - `AGENTS.md`：跨项目的沟通、授权、验证和技能选择规则；项目特有约束仍由用户维护在项目内。
 
-本次工作流调整依据 [OpenAI 关于 skills、AGENTS.md 与任务边界的建议](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)：减少无关常驻指令，按需读取资料，并明确何时继续、何时停下。不绑定特定模型，也不移除用户的安全与写入授权边界。
+工作流调整依据 [OpenAI 关于 skills、AGENTS.md 与任务边界的建议](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)：减少无关常驻指令，按需读取资料，并明确何时继续、何时停下。不绑定特定模型，也不移除用户的安全与写入授权边界。
 
 ## 安装与本机布局
 
 需要 Bash、Python 3.9+ 和 Git。安装不调用网络、包管理器或外部模型。
+`cc-switch-cli` 仅在使用其 CLI 流程时需要 `cc-switch` 命令；缺失不影响其他技能安装与使用。
 
 ```bash
 git clone git@github.com:Penghuige/agent-workflow.git ~/github/agent-workflow
@@ -24,7 +26,7 @@ bash ~/github/agent-workflow/install.sh
 
 | 内容 | 本机编辑源 | 宿主入口 |
 |---|---|---|
-| 本仓五个 skills | `~/.cc-switch/skills/<name>/` 实体目录 | `~/.agents/skills/`、`~/.claude/skills/` 中的链接 |
+| 本仓六个 skills | `~/.cc-switch/skills/<name>/` 实体目录 | `~/.agents/skills/`、`~/.claude/skills/` 中的链接 |
 | 全局规范 | `~/.claude/CLAUDE.md` 实体文件 | `~/.agents/AGENTS.md`、`$CODEX_HOME/AGENTS.md` 的链接；未设置 CODEX_HOME 时为 `~/.codex/AGENTS.md` |
 
 安装仅在编辑源缺失时从仓库复制；已有编辑源保留，不用仓库旧版本覆盖本机工作。宿主已有同目标链接时不变；实体文件、不同目标链接、断链均保留并报告冲突。旧版安装若让编辑源链接回仓库，会报告布局不一致，不自动迁移。冲突返回非零，不能当作完整安装成功。新建技能使用本次独占的临时目录，只清理本次创建的资源，保留既有同名临时目录。新建全局规范也先完整写入独占临时文件再原子发布，失败不留下截断的编辑源。

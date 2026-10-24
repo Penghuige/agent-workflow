@@ -1,6 +1,6 @@
 ---
 name: deep-deliberation
-description: 多视角审议高代价或难逆转的决策；用于明确要求对抗审议或重大取舍，不用于普通调试、综述与常规想法评分。
+description: 多视角审议单次高代价或难逆转的决策；用于明确要求对抗审议或重大取舍，不用于普通调试、领域综述、常规想法评分或实现期间的持续逐决定质疑。
 ---
 
 # deep-deliberation
@@ -32,4 +32,4 @@ description: 多视角审议高代价或难逆转的决策；用于明确要求�
 
 - 无 subagent 能力时可给标明限制的临时分析，不能称完成独立视角审议。
 - 同基座不同上下文不等于异质模型验证；跨模型调用的操作与安全规范参照 doubt-driven-development 的 cross-model escalation 节（stdin 传参、只读沙箱、逐次授权），沿用明确授权范围，无授权不外发材料，不默认再叠加一套审查。
-- 领域综述用 deep-research，常规单个想法评价用 idea-evaluator；明确快速讨论且不需要多视角时直接回答。
+- 领域综述用 deep-research，常规单个想法评价用 idea-evaluator；实现期间逐决定质疑用 doubt-driven-development；明确快速讨论且不需要多视角时直接回答。

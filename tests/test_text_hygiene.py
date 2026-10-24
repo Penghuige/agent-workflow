@@ -124,13 +124,40 @@ class TextHygieneTest(unittest.TestCase):
             findings = self.hygiene.scan_file(source)
             self.assertNotIn('broken-relative-link', self.codes(findings))
 
+    def test_inline_link_title_is_not_part_of_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'target.md').write_text('# Target\n')
+            source = base / 'source.md'
+            source.write_text('[doc](target.md "Title")\n')
+            findings = self.hygiene.scan_file(source)
+            self.assertEqual(set(), self.codes(findings))
+
     def test_reference_style_link_to_missing_target_is_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             source = base / 'source.md'
             source.write_text('[doc][ref]\n\n[ref]: missing.md\n')
             findings = self.hygiene.scan_file(source)
-            self.assertIn('broken-relative-link', self.codes(findings))
+            self.assertEqual({'broken-relative-link'}, self.codes(findings))
+
+    def test_reference_style_definition_may_follow_use(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'target.md').write_text('# Target\n')
+            source = base / 'source.md'
+            source.write_text('[doc][ref]\n\n[ref]: target.md\n')
+            findings = self.hygiene.scan_file(source)
+            self.assertEqual(set(), self.codes(findings))
+
+    def test_reference_style_definition_accepts_extensionless_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'LICENSE').write_text('license\n')
+            source = base / 'source.md'
+            source.write_text('[doc][ref]\n\n[ref]: LICENSE\n')
+            findings = self.hygiene.scan_file(source)
+            self.assertEqual(set(), self.codes(findings))
 
     def test_reference_style_link_without_definition_is_flagged(self):
         findings = self.hygiene.scan_text('[doc][missing-ref]\n')
@@ -153,6 +180,57 @@ class TextHygieneTest(unittest.TestCase):
             source.write_text('[doc](target.md#existing-heading)\n')
             findings = self.hygiene.scan_file(source)
             self.assertNotIn('broken-anchor', self.codes(findings))
+
+    def test_setext_heading_supplies_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'target.md').write_text('Existing Heading\n===============\n')
+            source = base / 'source.md'
+            source.write_text('[doc](target.md#existing-heading)\n')
+            findings = self.hygiene.scan_file(source)
+            self.assertEqual(set(), self.codes(findings))
+
+    def test_html_id_inside_fence_is_not_an_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'target.md').write_text('```html\n<a id="fake"></a>\n```\n')
+            source = base / 'source.md'
+            source.write_text('[doc](target.md#fake)\n')
+            findings = self.hygiene.scan_file(source)
+            self.assertEqual({'broken-anchor'}, self.codes(findings))
+
+    def test_indented_code_link_is_not_prose(self):
+        findings = self.hygiene.scan_text(
+            '    [doc](missing.md)\n', base_dir=Path(tempfile.gettempdir()))
+        self.assertNotIn('broken-relative-link', self.codes(findings))
+
+    def test_external_anchor_target_is_not_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            outside = base / 'outside.md'
+            outside.write_bytes(b'\xff')
+            root = base / 'root'
+            root.mkdir()
+            findings = self.hygiene.scan_text(
+                '[doc](../outside.md#outside)\n', base_dir=root,
+                path=root / 'source.md')
+            self.assertEqual({'anchor-unchecked'}, self.codes(findings))
+
+    def test_malformed_url_becomes_finding_without_breaking_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            bad = base / 'bad.md'
+            bad.write_text('[doc](https://[invalid)\n')
+            later = base / 'later.md'
+            later.write_text('hidden​char\n')
+            result = self.run_cli('--json', bad, later)
+            self.assertTrue(result.stdout, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(1, result.returncode, result.stderr)
+            self.assertEqual(
+                {'invalid-url', 'zero-width-format'},
+                {item['check'] for item in payload},
+            )
 
     def test_code_file_does_not_run_markdown_link_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -226,7 +304,7 @@ class TextHygieneTest(unittest.TestCase):
             '```\n# text-hygiene: ignore-file\nbad​char\n```\n')
         self.assertIn('zero-width-format', self.codes(findings))
 
-    def test_directory_scan_skips_symlinked_files(self):
+    def test_directory_scan_reports_symlinked_files_as_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             outside = base / 'outside.md'
@@ -235,8 +313,38 @@ class TextHygieneTest(unittest.TestCase):
             scan_root.mkdir()
             (scan_root / 'link.md').symlink_to(outside)
             result = self.run_cli(scan_root)
-            self.assertNotIn('link.md', result.stdout)
+            link_lines = [line for line in result.stdout.splitlines() if 'link.md' in line]
+            self.assertEqual(1, len(link_lines), result.stdout)
+            self.assertIn('scan-skipped', link_lines[0])
+            self.assertNotIn('zero-width-format', link_lines[0])
             self.assertEqual(0, result.returncode)
+
+    def test_directory_scan_follows_skill_directory_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            entity = base / 'entity' / 'demo'
+            entity.mkdir(parents=True)
+            (entity / 'SKILL.md').write_text('hidden​char\n')
+            scan_root = base / 'root'
+            scan_root.mkdir()
+            (scan_root / 'demo').symlink_to(entity, target_is_directory=True)
+            result = self.run_cli(scan_root)
+            self.assertIn('demo/SKILL.md', result.stdout)
+            self.assertIn('zero-width-format', result.stdout)
+
+    def test_duplicate_skill_symlink_targets_are_scanned_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            entity = base / 'entity' / 'demo'
+            entity.mkdir(parents=True)
+            (entity / 'SKILL.md').write_text('hidden​char\n')
+            scan_root = base / 'root'
+            scan_root.mkdir()
+            for name in ('a', 'b'):
+                (scan_root / name).symlink_to(entity, target_is_directory=True)
+            result = self.run_cli(scan_root)
+            self.assertEqual(1, result.stdout.count('zero-width-format'), result.stdout)
+            self.assertIn('scan-skipped', result.stdout)
 
     def test_json_parse_error_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,6 +360,15 @@ class TextHygieneTest(unittest.TestCase):
             target.write_text('a: [1, 2\n')
             findings = self.hygiene.scan_file(target)
             self.assertIn('yaml-parse', self.codes(findings))
+
+    def test_toml_without_parser_is_reported_as_unchecked(self):
+        original = self.hygiene.tomllib
+        self.hygiene.tomllib = None
+        try:
+            findings = self.hygiene.scan_text('x = [', suffix='.toml')
+        finally:
+            self.hygiene.tomllib = original
+        self.assertEqual({'toml-unchecked'}, self.codes(findings))
 
     def test_cli_returns_one_for_errors_and_strict_promotes_warnings(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -288,6 +405,15 @@ class TextHygieneTest(unittest.TestCase):
             summary = self.run_cli('--summary', target)
             self.assertIn('summary', summary.stderr.lower())
             self.assertIn('zero-width-format', summary.stderr)
+            self.assertIn('coverage: scanned=1, skipped=0, failed=0', summary.stderr)
+
+    def test_coverage_summary_counts_skipped_and_failed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'package-lock.json').write_text('{}\n')
+            missing = base / 'missing.md'
+            result = self.run_cli('--summary', base, missing)
+            self.assertIn('coverage: scanned=0, skipped=1, failed=1', result.stderr)
 
     def test_cli_scans_supported_files_below_directories(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -302,17 +428,23 @@ class TextHygieneTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
             self.assertIn('a.md', result.stdout)
             self.assertIn('b.txt', result.stdout)
-            self.assertNotIn('blob.bin', result.stdout)
+            for name in ('blob.bin', '.git'):
+                lines = [line for line in result.stdout.splitlines() if name in line]
+                self.assertEqual(1, len(lines), result.stdout)
+                self.assertIn('scan-skipped', lines[0])
             self.assertNotIn('hidden.md', result.stdout)
 
-    def test_generated_files_are_skipped_in_directory_scan(self):
+    def test_generated_files_are_reported_as_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / 'package-lock.json').write_text('hidden​char\n')
             (base / 'README.md').write_text('hidden​char\n')
             result = self.run_cli(base)
             self.assertIn('README.md', result.stdout)
-            self.assertNotIn('package-lock.json', result.stdout)
+            lock_lines = [line for line in result.stdout.splitlines() if 'package-lock.json' in line]
+            self.assertEqual(1, len(lock_lines), result.stdout)
+            self.assertIn('scan-skipped', lock_lines[0])
+            self.assertNotIn('zero-width-format', lock_lines[0])
 
     @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0, 'root can read chmod 000')
     def test_unreadable_directory_is_reported(self):

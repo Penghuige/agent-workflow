@@ -279,11 +279,16 @@ def parse_findings(text, suffix):
                 column = (mark.column + 1) if mark is not None else 1
                 problem = getattr(exc, 'problem', None) or str(exc)
                 findings.append(Finding('yaml-parse', 'error', line, column, problem))
-    elif suffix == '.toml' and tomllib is not None:
-        try:
-            tomllib.loads(text)
-        except Exception as exc:
-            findings.append(Finding('toml-parse', 'error', 1, 1, str(exc)))
+    elif suffix == '.toml':
+        if tomllib is None:
+            findings.append(Finding(
+                'toml-unchecked', 'warning', 1, 1,
+                'tomllib/tomli unavailable; TOML syntax not parsed'))
+        else:
+            try:
+                tomllib.loads(text)
+            except Exception as exc:
+                findings.append(Finding('toml-parse', 'error', 1, 1, str(exc)))
     return findings
 
 
@@ -341,7 +346,7 @@ def parse_inline_links(line):
                 cursor = close + 2
                 continue
             target = line[index + 1:end]
-            end_index = end + 1
+            index = end + 1
         else:
             start = index
             depth = 0
@@ -350,6 +355,8 @@ def parse_inline_links(line):
                 if char == '\\':
                     index += 2
                     continue
+                if char in ' \t' and depth == 0:
+                    break
                 if char == '(':
                     depth += 1
                 elif char == ')':
@@ -357,16 +364,17 @@ def parse_inline_links(line):
                         break
                     depth -= 1
                 index += 1
-            if index >= len(line):
-                cursor = close + 2
-                continue
             target = line[start:index]
-            end_index = index + 1
-        title = re.match(r"\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\))", line[end_index:])
+        title = re.match(r"\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\))", line[index:])
         if title:
-            end_index += title.end()
+            index += title.end()
+        while index < len(line) and line[index] in ' \t':
+            index += 1
+        if index >= len(line) or line[index] != ')':
+            cursor = close + 2
+            continue
         links.append((target.strip(), open_bracket + 1, is_image, text))
-        cursor = end_index
+        cursor = index + 1
     return links
 
 
@@ -395,16 +403,8 @@ def heading_findings(lines, skip_lines):
     seen = {}
     slugs = {}
     fragments = set()
-    for number, line in enumerate(lines, 1):
-        if number in skip_lines:
-            continue
-        for match in HTML_ID.finditer(line):
-            fragments.add(match.group(1))
-        match = HEADING.match(line)
-        if not match:
-            continue
-        level = len(match.group(1))
-        text = match.group(2)
+
+    def record_heading(number, level, text):
         if levels and level > levels[-1] + 1:
             findings.append(Finding(
                 'heading-level-skip', 'warning', number, 1,
@@ -422,6 +422,25 @@ def heading_findings(lines, skip_lines):
         if explicit:
             fragments.add(explicit.group(1))
         fragments.add(slugify(text, slugs))
+
+    setext_underlines = set()
+    for number, line in enumerate(lines, 1):
+        if number in skip_lines:
+            continue
+        for match in HTML_ID.finditer(line):
+            fragments.add(match.group(1))
+        match = HEADING.match(line)
+        if match:
+            record_heading(number, len(match.group(1)), match.group(2))
+            continue
+        setext = re.fullmatch(r' {0,3}(=+|-+) *', line)
+        if (setext and number > 1 and number - 1 not in skip_lines
+                and number - 1 not in setext_underlines):
+            previous = lines[number - 2]
+            if previous.strip() and not HEADING.match(previous):
+                level = 1 if setext.group(1)[0] == '=' else 2
+                record_heading(number - 1, level, previous.strip())
+                setext_underlines.add(number)
     return findings, fragments
 
 
@@ -436,15 +455,20 @@ def anchor_fragments(path, cache):
     lines = split_lines(text)
     frontmatter_lines, _ = frontmatter_findings(lines)
     code_lines, _ = fence_state(lines, frontmatter_lines)
+    code_lines |= indented_code_lines(lines, code_lines | frontmatter_lines)
     _, fragments = heading_findings(lines, code_lines | frontmatter_lines)
-    for line in lines:
-        for match in HTML_ID.finditer(line):
-            fragments.add(match.group(1))
     cache[path] = fragments
     return fragments
 
 
-def check_target(target, line, column, base_dir, current_path, current_fragments, cache):
+def within_roots(path, roots):
+    if roots is None:
+        return True
+    return any(path == root or root in path.parents for root in roots)
+
+
+def check_target(target, line, column, base_dir, current_path, current_fragments, cache,
+                 allowed_roots=None):
     findings = []
     target = target.strip()
     if not target:
@@ -459,7 +483,11 @@ def check_target(target, line, column, base_dir, current_path, current_fragments
                 'broken-anchor', 'warning', line, column,
                 f'anchor does not exist in this file: #{fragment}'))
         return findings
-    parsed = urlsplit(target)
+    try:
+        parsed = urlsplit(target)
+    except ValueError as exc:
+        findings.append(Finding('invalid-url', 'error', line, column, str(exc)))
+        return findings
     if parsed.scheme or target.startswith('//'):
         return findings
     file_part = unquote(parsed.path)
@@ -473,9 +501,15 @@ def check_target(target, line, column, base_dir, current_path, current_fragments
                                 f'link target does not exist: {target}'))
         return findings
     if parsed.fragment and candidate.suffix.lower() in MARKDOWN_SUFFIXES:
-        if current_path is not None and candidate.resolve() == current_path.resolve():
+        resolved = candidate.resolve()
+        if current_path is not None and resolved == current_path.resolve():
             fragments = current_fragments or set()
         else:
+            if not within_roots(resolved, allowed_roots):
+                findings.append(Finding(
+                    'anchor-unchecked', 'warning', line, column,
+                    f'anchor not checked outside approved scan roots: {target}'))
+                return findings
             fragments = anchor_fragments(candidate, cache)
         fragment = unquote(parsed.fragment)
         if fragment not in fragments:
@@ -489,20 +523,23 @@ def normalize_label(text):
     return ' '.join(text.strip().lower().split())
 
 
-def link_findings(lines, skip_lines, base_dir, current_path, current_fragments):
+def link_findings(lines, skip_lines, base_dir, current_path, current_fragments, allowed_roots):
     findings = []
     cache = {}
     definitions = {}
+    masked_lines = {}
     for number, line in enumerate(lines, 1):
         if number in skip_lines:
             continue
         masked = mask_inline_code(line)
+        masked_lines[number] = masked
         for match in REFERENCE_DEFINITION.finditer(masked):
             label = normalize_label(match.group(1))
-            target = match.group(2) or match.group(3) or ''
-            if label.startswith('^') or not any(marker in target for marker in ('.', '/', '#', ':')):
+            if label.startswith('^'):
                 continue
+            target = match.group(2) or match.group(3) or ''
             definitions[label] = (target, number, match.start(1) + 1)
+    for number, masked in masked_lines.items():
         for target, column, is_image, text in parse_inline_links(masked):
             if is_image and not text.strip():
                 findings.append(Finding('missing-image-alt', 'warning', number, column,
@@ -512,7 +549,8 @@ def link_findings(lines, skip_lines, base_dir, current_path, current_fragments):
                     'generic-link-text', 'warning', number, column,
                     f'link text is not descriptive: {text.strip()!r}'))
             findings.extend(check_target(
-                target, number, column, base_dir, current_path, current_fragments, cache))
+                target, number, column, base_dir, current_path, current_fragments, cache,
+                allowed_roots))
         for match in REFERENCE_LINK.finditer(masked):
             label = normalize_label(match.group(2) or match.group(1))
             if label not in definitions:
@@ -521,7 +559,8 @@ def link_findings(lines, skip_lines, base_dir, current_path, current_fragments):
                     f'reference label is not defined: {label}'))
     for target, number, column in definitions.values():
         findings.extend(check_target(
-            target, number, column, base_dir, current_path, current_fragments, cache))
+            target, number, column, base_dir, current_path, current_fragments, cache,
+            allowed_roots))
     return findings
 
 
@@ -640,12 +679,43 @@ def apply_suppressions(findings, lines, skip_lines=None):
     return kept
 
 
+def indented_code_lines(lines, skip_lines):
+    code_lines = set()
+    in_code = False
+    previous_blank = True
+    for number, line in enumerate(lines, 1):
+        if number in skip_lines:
+            in_code = False
+            previous_blank = True
+            continue
+        indented = bool(re.match(r'^(?: {4}|\t)', line))
+        if indented:
+            if in_code or previous_blank:
+                code_lines.add(number)
+                in_code = True
+            else:
+                in_code = False
+        elif not line.strip():
+            if in_code:
+                code_lines.add(number)
+            previous_blank = True
+            continue
+        else:
+            in_code = False
+        previous_blank = False
+    return code_lines
+
+
 def scan_text(text, base_dir=None, suffix='.md', max_width=LONG_LINE_WIDTH,
-              include_code_lines=False, parse_structured=True, path=None):
+              include_code_lines=False, parse_structured=True, path=None, allowed_roots=None):
     suffix = suffix.lower()
     markdown = suffix in MARKDOWN_SUFFIXES
     lines = split_lines(text)
     findings = []
+    if allowed_roots is None:
+        allowed_roots = {base_dir.resolve()} if base_dir is not None else set()
+    else:
+        allowed_roots = {Path(root).resolve() for root in allowed_roots}
     frontmatter_lines = set()
     code_lines = set()
     if markdown:
@@ -656,6 +726,7 @@ def scan_text(text, base_dir=None, suffix='.md', max_width=LONG_LINE_WIDTH,
         code_lines, fence_results = fence_state(
             lines, set() if unclosed_frontmatter else frontmatter_lines)
         findings.extend(fence_results)
+        code_lines |= indented_code_lines(lines, code_lines | frontmatter_lines)
     findings.extend(line_ending_findings(text))
     findings.extend(trailing_whitespace_findings(lines, markdown, code_lines))
     findings.extend(unicode_findings(lines))
@@ -664,7 +735,7 @@ def scan_text(text, base_dir=None, suffix='.md', max_width=LONG_LINE_WIDTH,
         findings.extend(heading_results)
         findings.extend(link_findings(
             lines, code_lines | frontmatter_lines, base_dir,
-            Path(path) if path is not None else None, fragments))
+            Path(path) if path is not None else None, fragments, allowed_roots))
         findings.extend(duplicate_block_findings(lines, code_lines | frontmatter_lines))
         findings.extend(long_line_findings(
             lines, code_lines | frontmatter_lines, max_width, include_code_lines))
@@ -679,7 +750,9 @@ def scan_text(text, base_dir=None, suffix='.md', max_width=LONG_LINE_WIDTH,
 
 
 def scan_file(path, max_width=LONG_LINE_WIDTH, include_code_lines=False,
-              parse_structured=True, explicit=False):
+              parse_structured=True, explicit=False, allowed_roots=None):
+    if allowed_roots is None:
+        allowed_roots = {path.parent.resolve(), path.resolve().parent}
     try:
         data = path.read_bytes()
     except OSError as exc:
@@ -701,7 +774,7 @@ def scan_file(path, max_width=LONG_LINE_WIDTH, include_code_lines=False,
     return scan_text(
         text, base_dir=path.parent, suffix=suffix, max_width=max_width,
         include_code_lines=include_code_lines,
-        parse_structured=parse_structured, path=path)
+        parse_structured=parse_structured, path=path, allowed_roots=allowed_roots)
 
 
 def is_generated(path):
@@ -718,11 +791,16 @@ def is_excluded(path, root, patterns):
                for pattern in patterns)
 
 
-def scan_targets(path, excludes=None, include_generated=False, errors=None):
+def scan_targets(path, excludes=None, include_generated=False, errors=None,
+                 skipped=None, allowed_roots=None):
     excludes = excludes or []
     if not path.is_dir():
         yield path
         return
+
+    def record_skip(target, reason):
+        if skipped is not None:
+            skipped.append((target, Finding('scan-skipped', 'info', 0, 0, reason)))
 
     def onerror(exc):
         if errors is None:
@@ -730,25 +808,43 @@ def scan_targets(path, excludes=None, include_generated=False, errors=None):
         target = Path(exc.filename) if getattr(exc, 'filename', None) else path
         errors.append((target, Finding('read-error', 'error', 0, 0, str(exc))))
 
-    for root, dirs, files in os.walk(path, followlinks=False, onerror=onerror):
+    visited = set()
+    for root, dirs, files in os.walk(path, followlinks=True, onerror=onerror):
         root_path = Path(root)
-        dirs[:] = sorted(
-            directory for directory in dirs
-            if directory not in SKIP_DIRS
-            and not is_excluded(root_path / directory, path, excludes))
+        resolved_root = root_path.resolve()
+        if resolved_root in visited:
+            dirs[:] = []
+            record_skip(root_path, 'duplicate or cyclic scan root')
+            continue
+        visited.add(resolved_root)
+        if allowed_roots is not None:
+            allowed_roots.add(resolved_root)
+        kept_dirs = []
+        for name in sorted(dirs):
+            item = root_path / name
+            if name in SKIP_DIRS:
+                record_skip(item, 'excluded system or generated directory')
+            elif is_excluded(item, path, excludes):
+                record_skip(item, 'excluded by --exclude')
+            elif item.is_symlink() and not (item / 'SKILL.md').is_file():
+                record_skip(item, 'symlinked directory without SKILL.md')
+            else:
+                kept_dirs.append(name)
+        dirs[:] = kept_dirs
         for name in sorted(files):
             item = root_path / name
             if item.is_symlink():
-                continue
-            if name.startswith('.') or name in SECRET_NAMES or name.startswith('.env'):
-                continue
-            if is_excluded(item, path, excludes):
-                continue
-            if not include_generated and is_generated(item):
-                continue
-            if item.suffix.lower() not in TEXT_SUFFIXES:
-                continue
-            yield item
+                record_skip(item, 'symlinked file')
+            elif name.startswith('.') or name in SECRET_NAMES or name.startswith('.env'):
+                record_skip(item, 'hidden or sensitive file')
+            elif is_excluded(item, path, excludes):
+                record_skip(item, 'excluded by --exclude')
+            elif not include_generated and is_generated(item):
+                record_skip(item, 'generated file or lockfile')
+            elif item.suffix.lower() not in TEXT_SUFFIXES:
+                record_skip(item, 'unsupported file type')
+            else:
+                yield item
 
 
 def main(argv=None):
@@ -770,21 +866,39 @@ def main(argv=None):
     fail_on = args.fail_on or ('warning' if args.strict else 'error')
     findings = []
     walk_errors = []
+    walk_skipped = []
+    scanned = 0
+    skipped_count = 0
+    failed = 0
     for path in args.paths:
         if path.is_file():
             targets = [path]
             explicit = True
+            allowed_roots = {path.parent.resolve(), path.resolve().parent}
         else:
-            targets = scan_targets(
-                path, args.exclude, args.include_generated, walk_errors)
             explicit = False
+            allowed_roots = {path.resolve() if path.is_dir() else path.parent.resolve()}
+            targets = scan_targets(
+                path, args.exclude, args.include_generated, walk_errors,
+                walk_skipped, allowed_roots)
         for target in targets:
-            for finding in scan_file(
-                    target, max_width=args.max_line_width,
-                    include_code_lines=args.include_code_lines,
-                    parse_structured=not args.no_parse, explicit=explicit):
-                findings.append((target, finding))
+            target_findings = scan_file(
+                target, max_width=args.max_line_width,
+                include_code_lines=args.include_code_lines,
+                parse_structured=not args.no_parse, explicit=explicit,
+                allowed_roots=allowed_roots)
+            checks = {finding.check for finding in target_findings}
+            if 'read-error' in checks:
+                failed += 1
+            elif checks & {'file-too-large', 'binary-skip'}:
+                skipped_count += 1
+            else:
+                scanned += 1
+            findings.extend((target, finding) for finding in target_findings)
     findings.extend(walk_errors)
+    findings.extend(walk_skipped)
+    skipped_count += len(walk_skipped)
+    failed += len(walk_errors)
     findings.sort(key=lambda item: (
         str(item[0]), item[1].line, item[1].column, item[1].severity, item[1].check))
     if args.json:
@@ -808,10 +922,13 @@ def main(argv=None):
             counts[finding.check] = counts.get(finding.check, 0) + 1
         for check in sorted(counts):
             print(f'{check}: {counts[check]}', file=sys.stderr)
+        print(f'coverage: scanned={scanned}, skipped={skipped_count}, failed={failed}',
+              file=sys.stderr)
     if fail_on == 'never':
         return 0
     if fail_on == 'warning':
-        return 1 if findings else 0
+        return 1 if any(
+            finding.severity in {'warning', 'error'} for _, finding in findings) else 0
     return 1 if any(finding.severity == 'error' for _, finding in findings) else 0
 
 

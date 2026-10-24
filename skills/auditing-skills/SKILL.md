@@ -1,6 +1,6 @@
 ---
 name: auditing-skills
-description: 审查 skill 的触发、协作和改后行为；用于技能体检或使用失败复盘，不代替编写与新建前查重。
+description: 审查 skill 的触发、协作和改后行为；用于技能体检、使用失败复盘，以及新建或修改技能后的分级验证，不代替编写与新建前查重。
 ---
 
 # auditing-skills
