@@ -1,0 +1,11 @@
+{
+  "config_version": 1,
+  "project_root": "..",
+  "project": {"name": "Replace with project name"},
+  "output": "reports/test-dashboard/index.html",
+  "layout": "auto",
+  "sources": [
+    {"id": "browser", "format": "playwright", "path": "frontend/test-results/report.json", "label": "Browser (replace example path)", "environment": "local", "track": "planned"},
+    {"id": "python", "format": "junit", "path": "reports/junit.xml", "label": "Python (replace example path)", "environment": "local", "track": "planned"}
+  ]
+}

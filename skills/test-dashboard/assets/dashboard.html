@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>测试结果面板</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#202a39;background:#f4f6f9;font-size:15px;line-height:1.6;--muted:#657086;--line:#dde3ec;--accent:#2956b3}
+*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button,select{cursor:pointer}button,a,input,select{touch-action:manipulation}button{border:1px solid var(--line);background:#fff;color:inherit;border-radius:7px;padding:.5rem .8rem}button:hover{border-color:#8d9bb5;background:#f7f9fc}button:disabled{cursor:default;opacity:.45}a{color:var(--accent);text-underline-offset:3px}a,pre,p,h1,h2,h3,h4,dd,li,span{overflow-wrap:anywhere}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #809de8;outline-offset:3px}h1,h2,h3,h4,p{margin:0}h1{font-size:clamp(1.5rem,4vw,2rem);letter-spacing:-.03em;line-height:1.3}h2{font-size:1.15rem}h3{font-size:1rem}h4{font-size:.94rem}.shell{max-width:1280px;margin:auto;padding:2.4rem 2rem 3rem}.eyebrow{font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.13em;margin-bottom:.55rem}.masthead{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}.subtitle{color:var(--muted);margin-top:.6rem;max-width:60rem}.badge,.status{display:inline-flex;align-items:center;gap:.35rem;border:1px solid var(--line);border-radius:5px;padding:.1rem .45rem;font-size:.76rem;line-height:1.6;white-space:normal;max-width:100%}.badge{background:#fff;color:#536176}.status{font-weight:650}.passed{color:#1e6049;background:#edf7f0;border-color:#cee5d6}.failed,.confirmed{color:#a12e3e;background:#fff0f1;border-color:#f0ccd1}.skipped{color:#69516e;background:#f5f0f7;border-color:#e3d8e8}.not_run,.candidate{color:#84601c;background:#fff8e8;border-color:#ebdcb7}.metadata{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}.tabs{display:flex;gap:1.6rem;margin-top:1.7rem;border-bottom:1px solid var(--line)}.tabs button{padding:.8rem .1rem;border:0;border-bottom:3px solid transparent;border-radius:0;background:none;color:var(--muted);font-weight:650}.tabs button[aria-selected=true]{color:var(--accent);border-bottom-color:var(--accent)}.track-intro{padding:1.2rem 0}.track-intro p{color:var(--muted);margin-top:.3rem}.panel{border:1px solid var(--line);border-radius:10px;background:#fff;padding:1.2rem}.filters{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr) minmax(0,1.7fr);gap:1rem}.filters label{display:block;font-weight:600;font-size:.82rem}.filters select,.filters input{width:100%;min-width:0;margin-top:.35rem;padding:.55rem .65rem;border:1px solid #ced6e2;border-radius:6px;background:white;color:inherit}.scope{color:var(--muted);font-size:.85rem;margin-top:.8rem}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.8rem;margin-top:1rem}.stat{background:#fff;border:1px solid var(--line);border-radius:8px;padding:.8rem 1rem}.stat strong{display:block;font-size:1.6rem;font-weight:650;line-height:1.25;margin-top:.2rem}.stat span{font-size:.8rem;color:var(--muted)}.notice{border:1px solid #e6d4ac;border-left:4px solid #b88724;background:#fffbf0;padding:.8rem 1rem;border-radius:6px;margin-top:.8rem;font-size:.87rem}.notice strong{display:block}.notice.danger{background:#fff5f5;border-color:#e5bdc3;border-left-color:#b53d4d}.run-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:.8rem;margin-top:1rem}.run-card{min-width:0}.run-card dl{margin:.6rem 0 0}.run-card dd{font-size:.8rem}.run-card dt{font-size:.76rem}.section-head{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;margin:1.7rem 0 .8rem}.section-head p{font-size:.82rem;color:var(--muted)}#cases{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:.75rem}.case{display:flex;flex-direction:column;align-items:flex-start;gap:.6rem;background:#fff;border:1px solid var(--line);border-radius:8px;padding:1rem;min-width:0}.case h3{line-height:1.5}.case .case-meta{font-size:.78rem;color:var(--muted)}.case button{margin-top:auto;align-self:stretch;text-align:left;color:var(--accent);font-size:.84rem}.case .finding-counts{font-size:.78rem;color:var(--muted)}.case-top{display:flex;justify-content:space-between;align-items:flex-start;gap:.6rem;width:100%}.duration{color:var(--muted);font-size:.75rem}.case-id{font-family:ui-monospace,monospace;font-size:.72rem;color:var(--muted)}.case-group{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:.75rem;min-width:0}.case-group>h3{grid-column:1/-1;padding:.5rem 0;border-bottom:1px solid var(--line);color:#4e5d74}.pagination{display:flex;align-items:center;justify-content:center;gap:1rem;margin-top:1.2rem;flex-wrap:wrap}.pagination span{color:var(--muted);font-size:.84rem}.empty{grid-column:1/-1;text-align:center;padding:3rem 1rem;color:var(--muted);border:1px dashed var(--line);border-radius:8px;background:#fff}.footer{color:var(--muted);font-size:.77rem;margin-top:2rem;border-top:1px solid var(--line);padding-top:1rem}dialog{width:min(850px,calc(100% - 2rem));max-height:90vh;border:1px solid var(--line);border-radius:12px;padding:0;color:inherit;background:#fff;overscroll-behavior:contain}dialog::backdrop{background:rgba(25,36,54,.52)}.dialog-header{position:sticky;top:0;display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding:1.2rem 1.4rem;background:#fff;border-bottom:1px solid var(--line);z-index:1}.dialog-header h2{padding-top:.25rem;min-width:0;max-height:20vh;overflow-y:auto}.dialog-header button{flex-shrink:0}.dialog-body{padding:1.3rem 1.4rem}.detail-section+.detail-section{margin-top:1.5rem}.detail-section>h3{border-bottom:1px solid var(--line);padding-bottom:.4rem;margin-bottom:.7rem}dl{display:grid;grid-template-columns:6rem minmax(0,1fr);gap:.4rem .8rem;margin:0}dt{font-size:.85rem;color:var(--muted)}dd{margin:0;white-space:pre-wrap;font-size:.9rem;min-width:0}pre{white-space:pre-wrap;word-break:break-word;background:#f4f6fa;border:1px solid var(--line);border-radius:6px;padding:.8rem;font-size:.8rem;max-width:100%;margin:.6rem 0 0}.muted{color:var(--muted);font-size:.85rem}.steps{padding-left:1.5rem;margin:0}.steps>li{padding:.1rem 0 1rem .3rem}.step-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:.6rem;margin-bottom:.5rem}.finding{border:1px solid var(--line);border-radius:7px;padding:.85rem;margin:.6rem 0}.finding h4{margin-bottom:.7rem}.attachments{list-style:none;padding:0;margin:.5rem 0}.attachments>li{padding:.65rem 0;border-bottom:1px solid #eef0f5;font-size:.85rem}.attachment-top{display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap}.attachment-path{font-size:.73rem;color:var(--muted);margin-top:.2rem}.preview{display:block;max-width:100%;max-height:70vh;margin-top:.7rem;object-fit:contain;border:1px solid var(--line);border-radius:4px}.preview-button{font-size:.76rem;padding:.2rem .5rem}.run-note{font-size:.85rem;color:#5a6576;margin-top:.4rem}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}body[data-layout=compact] .case{padding:.8rem}body[data-layout=compact] #cases{grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr))}
+#project-name{min-width:0;max-width:100%;max-height:20vh;overflow-y:auto;padding-bottom:1px}#project-name:focus-visible{outline:3px solid #809de8;outline-offset:3px}
+.gap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:.8rem}.gap-card{min-width:0}.gap-card h3{margin-bottom:.5rem}.gap-card .metadata{margin:.6rem 0 .8rem}.gap-intro{color:var(--muted);font-size:.87rem;margin-bottom:.8rem}.method-runs{list-style:none;padding:0;margin:.8rem 0 0}.method-runs li+li{margin-top:.45rem}.method-runs button{width:100%;text-align:left;font-size:.8rem}.method-evidence{margin-top:.8rem;color:var(--muted);font-size:.8rem}
+@media(max-width:600px){.shell{padding:1.3rem 1rem 2rem}.masthead{flex-direction:column}.filters{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.tabs{gap:1rem}.tabs button{font-size:.87rem}.section-head{flex-direction:column;gap:.3rem}.dialog-header,.dialog-body{padding:1rem}dl{grid-template-columns:1fr;gap:.15rem}dd{margin-bottom:.55rem}.pagination{gap:.5rem}.badge{font-size:.72rem}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header>
+    <div class="eyebrow">TEST RESULTS / 结果与证据</div>
+    <div class="masthead"><h1 id="project-name" tabindex="0">测试结果面板</h1><span class="badge" id="layout-label"></span></div>
+    <p class="subtitle">从约定到执行，从观察到证据。按测试轮次保留结果，打开记录查看实际步骤。</p>
+    <div class="metadata" id="project-meta"></div>
+  </header>
+  <section id="test-methods" aria-labelledby="methods-title">
+    <div class="section-head"><h2 id="methods-title">测试方法总览</h2><p>已考虑的方法 · 配置状态 · 运行证据</p></div>
+    <p class="gap-intro">按项目范围选择方法与流程。已配置不等于已运行；建议采用不等于已纳入计划。关联轮次保留各自的状态和结果。</p>
+    <div id="methods-list" class="gap-grid"></div>
+  </section>
+  <div class="tabs" role="tablist" aria-label="测试类型">
+    <button id="tab-planned" type="button" role="tab" aria-selected="true" aria-controls="track-panel" tabindex="0">计划测试</button>
+    <button id="tab-exploratory" type="button" role="tab" aria-selected="false" aria-controls="track-panel" tabindex="-1">开发后探索测试</button>
+  </div>
+  <section id="track-panel" role="tabpanel" aria-labelledby="tab-planned">
+    <div class="track-intro"><h2 id="track-title">计划测试</h2><p id="track-description"></p></div>
+    <div class="panel filters" aria-label="结果筛选">
+      <label for="run-filter">测试轮次<select id="run-filter"></select></label>
+      <label for="status-filter">记录状态<select id="status-filter"></select></label>
+      <label for="search">查找记录<input id="search" type="search" placeholder="名称、用例 ID、套件、发现或步骤" autocomplete="off"></label>
+    </div>
+    <p class="scope" id="scope-info" aria-live="polite"></p>
+    <div class="stats" id="stats" aria-label="当前筛选范围统计"></div>
+    <div id="scope-notices"></div>
+    <div id="run-overview"></div>
+    <div class="section-head"><h2>结果记录</h2><p id="records-hint">点击记录，查看步骤与执行证据。</p></div>
+    <div id="cases"></div>
+    <nav class="pagination" aria-label="结果分页"><button id="prev-page" type="button">上一页</button><span id="page-info" aria-live="polite"></span><button id="next-page" type="button">下一页</button></nav>
+  </section>
+  <section id="test-gaps" aria-labelledby="gaps-title">
+    <div class="section-head"><h2 id="gaps-title">测试缺口与建议</h2><p>两轨共用 · 只读评估</p></div>
+    <p class="gap-intro">计划与探索是两种工作入口，测试类型可继续扩充。以下建议不代表已纳入测试计划或已执行。</p>
+    <div id="gaps-list" class="gap-grid"></div>
+  </section>
+  <footer class="footer">此页只读。复现命令仅供查看；附件与轨迹来自执行端，查看记录不会重新运行测试。</footer>
+</main>
+<dialog id="details" aria-labelledby="details-title">
+  <div class="dialog-header"><h2 id="details-title" tabindex="0">记录详情</h2><button type="button" id="close-details" aria-label="关闭详情">关闭 ✕</button></div>
+  <div id="details-content" class="dialog-body"></div>
+</dialog>
+<script id="dashboard-data" type="application/json">__TEST_DASHBOARD_DATA__</script>
+<script>
+"use strict";
+(() => {
+  const data = JSON.parse(document.getElementById("dashboard-data").textContent);
+  const runs = data.runs || [];
+  const PAGE_SIZE = 100;
+  let track = "planned", page = 0, focusBeforeDialog = null;
+  const $ = id => document.getElementById(id);
+  const text = value => value == null || value === "" ? "未提供" : String(value);
+  const node = (tag, content, className) => { const n = document.createElement(tag); if (content != null) n.textContent = String(content); if (className) n.className = className; return n; };
+  const trackOf = run => run.track || "planned";
+  const stateNames = {completed:"已结束",running:"执行中",blocked:"执行阻塞",collection_error:"结果采集错误",not_integrated:"尚未接入"};
+  const statusName = (status, currentTrack=track) => ({passed:currentTrack === "exploratory" ? "流程完成" : "通过",failed:"失败",skipped:"已跳过",not_run:"未运行",candidate:"候选发现",confirmed:"已确认发现"}[status] || text(status));
+  function statusBadge(status, currentTrack=track) { return node("span", statusName(status,currentTrack), "status " + (["passed","failed","skipped","not_run","candidate","confirmed"].includes(status) ? status : "")); }
+  const mismatch = run => Boolean(data.project.revision && run.revision && data.project.revision !== run.revision);
+  const labelRun = run => run.label + " · " + run.id + " · " + text(run.environment);
+  const findingCounts = records => records.reduce((counts, r) => { for (const f of r.item.findings || []) if (f.status in counts) counts[f.status]++; return counts; }, {candidate:0,confirmed:0});
+  const records = runs.flatMap(run => run.cases.map(item => ({run,item,search:[item.id,item.name,item.suite,item.expected,item.actual,item.error,...(item.steps||[]).map(s=>s.name),...(item.findings||[]).flatMap(f=>[f.title,f.basis,f.actual])].filter(Boolean).join(" ").toLocaleLowerCase()})));
+  document.body.dataset.layout = data.layout || "compact";
+  $("project-name").textContent = data.project.name;
+  document.title = data.project.name + " · 测试结果";
+  $("layout-label").textContent = ({compact:"轻量网格",grouped:"按套件组织",workflow:"执行工作流"}[data.layout] || "轻量网格");
+  for (const value of ["版本：" + text(data.project.revision),"工作区：" + (data.project.dirty === true ? "含未提交修改" : data.project.dirty === false ? "无未提交修改" : "状态未知"),"结果分组：" + runs.length]) $("project-meta").append(node("span",value,"badge"));
+  if (data.snapshot && typeof data.snapshot.template_sha256 === "string" && typeof data.snapshot.generated_at === "string") {
+    $("project-meta").append(node("span", "模板快照：" + data.snapshot.template_sha256.slice(0,12) + " · 生成：" + data.snapshot.generated_at, "badge"));
+  }
+  function populateFilters() {
+    $("run-filter").replaceChildren(node("option","全部轮次")); $("run-filter").firstChild.value = "";
+    for (const run of runs.filter(r=>trackOf(r)===track)) { const o=node("option",labelRun(run)); o.value=run.id; $("run-filter").append(o); }
+    $("status-filter").replaceChildren();
+    for (const s of ["","passed","failed","skipped","not_run"]) {const o=node("option",s ? statusName(s) : "全部状态"); o.value=s; $("status-filter").append(o);}
+  }
+  function fields(target, values) { const dl=node("dl"); for (const [key,value] of values) {dl.append(node("dt",key),node("dd",text(value)));} target.append(dl); }
+  function renderMethods() {
+    const target=$("methods-list");target.replaceChildren();
+    if(!Object.prototype.hasOwnProperty.call(data,"methods")){target.append(node("p","未提供方法评估。","panel muted"));return;}
+    if(!data.methods.length){target.append(node("p","本次未列方法；这不表示已覆盖全部测试方法。","panel muted"));return;}
+    for(const method of data.methods){const card=node("article",null,"gap-card panel");card.append(node("h3",method.name));const tags=node("div",null,"metadata"),state=method.state||"unknown";
+      tags.append(node("span",({present:"已配置 · 不等于已运行",suggested:"建议采用",not_applicable:"不适用",unknown:"状态未知"}[state]||"状态未知"),"badge"));if(method.category)tags.append(node("span",method.category,"badge"));card.append(tags);
+      fields(card,[["方法 ID",method.id],["评估原因",method.reason],["说明与依据",method.evidence]]);
+      const linked=(method.run_ids||[]).map(id=>runs.find(run=>run.id===id)).filter(Boolean);
+      if(!linked.length)card.append(node("p","暂无关联运行记录。","method-evidence"));
+      else {const count=linked.reduce((n,run)=>n+run.cases.length,0),executed=linked.reduce((n,run)=>n+run.cases.filter(item=>item.status==="passed"||item.status==="failed").length,0);card.append(node("p","关联 "+linked.length+" 轮 / "+count+" 条结果记录，其中已执行记录 "+executed+" 条。跳过及未运行另见各轮记录。","method-evidence"));
+        const list=node("ul",null,"method-runs");for(const run of linked){const li=node("li"),button=node("button",labelRun(run)+" · "+(stateNames[run.state]||run.state)+" →");button.type="button";button.setAttribute("aria-label","查看关联轮次："+run.id);button.addEventListener("click",()=>{activate(trackOf(run));$("run-filter").value=run.id;page=0;render();$("track-panel").scrollIntoView({block:"start"});$("run-filter").focus({preventScroll:true});});li.append(button);list.append(li);}card.append(list);}
+      target.append(card);}
+  }
+  function renderGaps() {
+    const target=$("gaps-list");target.replaceChildren();
+    if(!Object.prototype.hasOwnProperty.call(data,"gaps")){target.append(node("p","未提供测试缺口评估。","panel muted"));return;}
+    if(!data.gaps.length){target.append(node("p","本次评估未列建议；这不表示测试完整。","panel muted"));return;}
+    for(const gap of data.gaps){const card=node("article",null,"gap-card panel");card.append(node("h3",gap.title));const tags=node("div",null,"metadata"),confidence=gap.confidence||"hypothesis",state=gap.state||"suggested";
+      tags.append(node("span",confidence==="evidence"?"证据支持":"假设 · 待验证","badge"));card.append(tags);
+      fields(card,[["建议原因",gap.reason],["补测建议",gap.suggestion],["建议依据",gap.basis],["用户决定",({suggested:"未知 · 建议待确认",accepted:"已接受建议（不代表已执行）",not_applicable:"已决定不适用"}[state]||"未知")]]);target.append(card);}
+  }
+  function notice(target,title,detail,danger=false) {const n=node("div",null,"notice"+(danger?" danger":"")); n.append(node("strong",title),node("p",detail)); target.append(n);}
+  function renderOverview(selectedRuns) {
+    const notices=$("scope-notices"); notices.replaceChildren();
+    if (track === "exploratory") notice(notices,"探索范围开放 · 预期总量未知","记录只反映本轮实际尝试；流程完成不代表全部功能通过。候选发现与已确认发现分别记录。");
+    else if (!selectedRuns.length || selectedRuns.some(r=>!r.inventory_known)) notice(notices,"预期总量未知","选中轮次缺少完整可信清单，无法计算未运行总量或整体完成率。已记录的“未运行”仅按现有记录统计。");
+    else notice(notices,"已知本轮清单","清单包含选中轮次的适用用例；统计单位为结果记录。不同环境与重试分别保留，完成情况不等于覆盖率。");
+    for (const run of selectedRuns) {
+      if (["blocked","collection_error","not_integrated"].includes(run.state)) notice(notices,stateNames[run.state]+" · "+labelRun(run),"这是执行或证据状态，与用例失败分开记录。"+(run.notes?.length?" "+run.notes.join("；"):" 未提供进一步说明。"),true);
+      if (mismatch(run)) notice(notices,"版本不匹配 · "+run.id,"项目版本 "+data.project.revision+"；本轮版本 "+run.revision+"。请按本轮版本解释结果。",true);
+    }
+    const overview=$("run-overview"); overview.replaceChildren();
+    const details=node("details"); if (data.layout === "workflow") details.open=true;
+    details.append(node("summary","轮次、环境与结果来源（"+selectedRuns.length+"）"));
+    const grid=node("div",null,"run-grid");
+    for (const run of selectedRuns) {const card=node("article",null,"run-card panel");card.append(node("h3",run.label),node("span",stateNames[run.state]||run.state,"badge")); fields(card,[["轮次 ID",run.id],["环境",run.environment],["版本",run.revision],["开始时间",run.started_at],["结果来源",run.source],["清单",run.inventory_known?"已知":"预期总量未知"],["结果记录",run.cases.length]]); if(run.charter) fields(card,[["探索目标",run.charter]]);if(run.seed != null) fields(card,[["随机种子",run.seed]]); for(const note of run.notes||[])card.append(node("p",note,"run-note"));grid.append(card);}
+    if(!selectedRuns.length)grid.append(node("p","此类型尚无测试轮次。","muted")); details.append(grid); overview.append(details); overview.style.marginTop="1rem";
+  }
+  function renderCard(r) {
+    const {run,item}=r, card=node("article",null,"case");card.dataset.caseId=item.id; card.dataset.runId=run.id;
+    const top=node("div",null,"case-top");top.append(statusBadge(item.status,trackOf(run)));if(item.duration_ms!=null)top.append(node("span",(item.duration_ms/1000).toLocaleString(undefined,{maximumFractionDigits:2})+" s","duration"));
+    card.append(top,node("h3",item.name),node("span",item.id,"case-id"),node("p",item.suite+" · "+labelRun(run),"case-meta"));
+    const fc=findingCounts([r]); if(fc.candidate||fc.confirmed)card.append(node("p","候选发现 "+fc.candidate+" · 已确认发现 "+fc.confirmed,"finding-counts"));
+    const button=node("button","查看步骤与证据 →");button.type="button";button.setAttribute("aria-label","查看记录："+item.name+" · "+run.id);button.addEventListener("click",()=>showDetails(r,button));card.append(button);return card;
+  }
+  function render() {
+    const selectedRuns=runs.filter(r=>trackOf(r)===track&&(!$("run-filter").value||r.id===$("run-filter").value));
+    const ids=new Set(selectedRuns.map(r=>r.id)), base=records.filter(r=>ids.has(r.run.id));
+    const query=$("search").value.trim().toLocaleLowerCase(), status=$("status-filter").value;
+    const filtered=base.filter(r=>(!status||r.item.status===status)&&(!query||r.search.includes(query)));
+    const pages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));page=Math.max(0,Math.min(page,pages-1));const start=page*PAGE_SIZE, visible=filtered.slice(start,start+PAGE_SIZE);
+    $("scope-info").textContent="全选中轮次范围："+selectedRuns.length+" 轮 / "+base.length+" 条结果记录；当前筛选范围："+filtered.length+" 条。以下统计覆盖全部筛选结果，非当前页。";
+    const stats=$("stats");stats.replaceChildren();
+    const counts=Object.fromEntries(["passed","failed","skipped","not_run"].map(s=>[s,filtered.filter(r=>r.item.status===s).length]));
+    for(const s of ["passed","failed","skipped","not_run"]) {const stat=node("div",null,"stat");stat.append(node("span",statusName(s)+(s==="not_run"?"（已记录）":"")),node("strong",counts[s]));stats.append(stat);}
+    if(track==="exploratory"){const fc=findingCounts(filtered);for(const s of ["candidate","confirmed"]){const stat=node("div",null,"stat");stat.append(node("span",statusName(s)),node("strong",fc[s]));stats.append(stat);}}
+    renderOverview(selectedRuns);
+    const cases=$("cases"); cases.replaceChildren();
+    if(!visible.length)cases.append(node("p",base.length?"没有匹配的结果。可调整筛选条件。":"此范围尚无结果记录；不能据此判断测试通过。","empty"));
+    if(data.layout === "grouped" || data.layout === "workflow") {const groups=new Map();for(const r of visible){const key=JSON.stringify([r.run.id,r.item.suite]);if(!groups.has(key)){const group=node("section",null,"case-group");group.append(node("h3",r.item.suite+" · "+labelRun(r.run)));groups.set(key,group);cases.append(group);}groups.get(key).append(renderCard(r));}}
+    else for(const r of visible)cases.append(renderCard(r));
+    $("page-info").textContent="第 "+(page+1)+" / "+pages+" 页 · 当前页 "+visible.length+" 条"+(filtered.length?"（"+(start+1)+"–"+(start+visible.length)+" / "+filtered.length+"）":"");
+    $("prev-page").disabled=page===0;$("next-page").disabled=page>=pages-1;
+  }
+  // Accept only safe renderer-normalized links; never fetch remote media implicitly.
+  function attachmentURL(attachment) {
+    if(attachment.availability === "missing")return null;
+    const raw=attachment.href || attachment.path;if(typeof raw!=="string"||!raw||/[\u0000-\u0020\\]/.test(raw))return null;
+    if(/^https?:\/\//i.test(raw)){try {const url=new URL(raw);return {href:url.href,remote:true};}catch{return null;}}
+    if(raw.startsWith("/")||raw.includes(":"))return null;
+    let decoded;try{decoded=decodeURIComponent(raw);}catch{return null;}
+    if(decoded.startsWith("/")||decoded.includes("\\")||decoded.includes(":" )||decoded.split(/[/?#]/).includes(".."))return null;
+    return {href:raw,remote:false};
+  }
+  function attachments(target,items) {
+    if(!items?.length){target.append(node("p","未采集附件。","muted"));return;}
+    const list=node("ul",null,"attachments");
+    for(const item of items){const li=node("li"),top=node("div",null,"attachment-top");const url=attachmentURL(item),availability=item.availability||"unverified";
+      top.append(node("span",item.label+" · "+item.kind));top.append(node("span",({present:"本地已找到",missing:"附件缺失",unverified:"可用性未核实"}[availability]||"可用性未核实"),"badge"));
+      if(url){const link=node("a",item.kind==="report"?"打开原生报告 ↗":"打开附件 ↗");link.href=url.href;link.target="_blank";link.rel="noopener noreferrer";top.append(link);
+        if(item.kind==="screenshot"&&!url.remote&&availability==="present"){const button=node("button","预览截图","preview-button");button.type="button";button.setAttribute("aria-expanded","false");let preview=null;button.addEventListener("click",()=>{if(preview){preview.remove();preview=null;button.textContent="预览截图";button.setAttribute("aria-expanded","false");}else{preview=node("img",null,"preview");preview.alt=item.label;preview.src=url.href;preview.addEventListener("error",()=>{if(preview){const failed=node("p","预览失败：附件可能已被移动或不可读取。","muted");preview.replaceWith(failed);preview=failed;}});li.append(preview);button.textContent="收起截图";button.setAttribute("aria-expanded","true");}});top.append(button);}}
+      li.append(top,node("p",item.path,"attachment-path"));if(availability==="missing")li.append(node("p","未生成可点击链接，请检查本轮证据产物。","muted"));
+      if(item.kind==="trace")li.append(node("p","使用对应框架的查看器打开 trace；如有原生报告，请使用报告入口。本页面不解析 trace ZIP。","muted"));
+      list.append(li);
+    }target.append(list);
+  }
+  function section(parent,title){const result=node("section",null,"detail-section");result.append(node("h3",title));parent.append(result);return result;}
+  function showDetails(r,opener) {
+    const {run,item}=r;focusBeforeDialog=opener;$("details-title").textContent=item.name;const body=$("details-content");body.replaceChildren();
+    const basic=section(body,"用例与结果");basic.append(statusBadge(item.status,trackOf(run)));fields(basic,[["用例 ID",item.id],["套件",item.suite],["预期结果",item.expected],["实际结果",item.actual],["错误",item.error]]);
+    const source=section(body,"来源轮次");fields(source,[["类型",trackOf(run)==="exploratory"?"开发后探索测试":"计划测试"],["轮次",labelRun(run)],["执行状态",stateNames[run.state]||run.state],["版本",run.revision],["开始时间",run.started_at],["来源",run.source]]);if(mismatch(run))notice(source,"版本不匹配","项目版本与本轮版本不同。",true);if(run.charter)fields(source,[["探索目标",run.charter]]);if(run.seed!=null)fields(source,[["随机种子",run.seed]]);for(const note of run.notes||[])source.append(node("p",note,"run-note"));
+    const steps=section(body,"实际执行步骤");if(!item.steps?.length)steps.append(node("p","未采集步骤。不能从用例名称推断执行轨迹。","muted"));else{const list=node("ol",null,"steps");for(const step of item.steps){const li=node("li"),head=node("div",null,"step-head");head.append(node("h4",step.name),statusBadge(step.status,trackOf(run)));li.append(head);if(step.expected||step.actual||step.error)fields(li,[["预期",step.expected],["实际",step.actual],["错误",step.error]]);attachments(li,step.attachments);list.append(li);}steps.append(list);}
+    const findings=section(body,"观察与发现");if(!item.findings?.length)findings.append(node("p","本条记录没有发现条目；不代表已穷尽潜在问题。","muted"));else{for(const f of item.findings){const finding=node("article",null,"finding");finding.append(node("h4",f.title),statusBadge(f.status));fields(finding,[["判断依据",f.basis],["预期",f.expected],["实际",f.actual],["严重程度",f.severity]]);if(f.status==="candidate")finding.append(node("p","候选观察，尚待确认，不自动等同于失败或已确认缺陷。","muted"));attachments(finding,f.attachments);findings.append(finding);}}
+    const command=section(body,"复现命令 · 只读");if(item.command)command.append(node("pre",item.command));else command.append(node("p","未提供复现命令。","muted"));command.append(node("p","此页不会执行命令；查看轨迹不会重新运行测试。","muted"));
+    attachments(section(body,"用例附件与原生报告"),item.attachments);
+    $("details").showModal();$("close-details").focus();$("details").scrollTop=0;
+  }
+  $("close-details").addEventListener("click",()=>$("details").close());
+  $("details").addEventListener("close",()=>{if(focusBeforeDialog?.isConnected)focusBeforeDialog.focus();});
+  function activate(next,focus=false){track=next;page=0;for(const t of ["planned","exploratory"]){const tab=$("tab-"+t);tab.setAttribute("aria-selected",String(t===track));tab.tabIndex=t===track?0:-1;}$("track-panel").setAttribute("aria-labelledby","tab-"+track);$("track-title").textContent=track==="planned"?"约定了哪些测试，执行到了哪里":"实际尝试了什么，发现了什么";$("track-description").textContent=track==="planned"?"查看 TDD / 验收约定对应的测试结果，区分失败、跳过与已知未运行项。":"按操作路径回看步骤、截图与发现。流程完成仅表示本条尝试按执行器判据结束。";$("search").value="";populateFilters();render();if(focus)$("tab-"+track).focus();}
+  for(const t of ["planned","exploratory"]){const tab=$("tab-"+t);tab.addEventListener("click",()=>activate(t));tab.addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();activate(event.key==="Home"?"planned":event.key==="End"?"exploratory":track==="planned"?"exploratory":"planned",true);}});}
+  for(const id of ["run-filter","status-filter"])$(id).addEventListener("change",()=>{page=0;render();});
+  $("search").addEventListener("input",()=>{page=0;render();});
+  $("prev-page").addEventListener("click",()=>{page--;render();});$("next-page").addEventListener("click",()=>{page++;render();});
+  renderMethods();renderGaps();activate("planned");
+})();
+</script>
+</body>
+</html>

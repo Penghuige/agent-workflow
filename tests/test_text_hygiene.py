@@ -97,6 +97,74 @@ class TextHygieneTest(unittest.TestCase):
         closed = self.hygiene.scan_text('````text\n```\n````\nafter\n')
         self.assertNotIn('unclosed-fence', self.codes(closed))
 
+    def test_backticks_in_info_do_not_turn_inline_code_into_a_fence(self):
+        # CommonMark 0.31.2 examples 138/145: these are paragraphs, not fences.
+        # https://spec.commonmark.org/0.31.2/#fenced-code-blocks
+        for text in ('``` ```\naaa\n', '``` aa ```\nfoo\n'):
+            with self.subTest(text=text):
+                self.assertNotIn('unclosed-fence', self.codes(self.hygiene.scan_text(text)))
+                with tempfile.TemporaryDirectory() as tmp:
+                    source = Path(tmp) / 'inline.md'
+                    source.write_text(text, encoding='utf-8')
+                    result = self.run_cli(source)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_invalid_backtick_opener_does_not_hide_prose_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = self.hygiene.scan_text(
+                '``` aa ```\n[missing](missing.md)\n', base_dir=Path(tmp))
+            self.assertNotIn('unclosed-fence', self.codes(findings))
+            self.assertIn('broken-relative-link', self.codes(findings))
+
+    def test_tilde_fence_can_contain_backticks_in_its_info(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = self.hygiene.scan_text(
+                '~~~ aa ```\n[example](missing.md)\n~~~\n', base_dir=Path(tmp))
+            self.assertNotIn('unclosed-fence', self.codes(findings))
+            self.assertNotIn('broken-relative-link', self.codes(findings))
+
+    def test_quote_fence_ends_at_its_container(self):
+        # CommonMark example 128; the missing link is derived from its outer prose.
+        examples = (
+            ('> ```\n> code\n\n[missing](missing.md)\n', 4),
+            ('> ```\n> code\n[missing](missing.md)\n', 3),
+            ('> > ```\n> > code\n> [missing](missing.md)\n', 3),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for text, line in examples:
+                with self.subTest(text=text):
+                    findings = self.hygiene.scan_text(text, base_dir=Path(tmp))
+                    self.assertNotIn('unclosed-fence', self.codes(findings))
+                    self.assertEqual([line], [f.line for f in findings
+                                              if f.check == 'broken-relative-link'])
+
+    def test_quote_markers_inside_fenced_code_do_not_close_the_fence(self):
+        examples = (
+            '```\n> ```\n[ignored](missing.md)\n```\n[checked](missing.md)\n',
+            '> ```\n> > ```\n> [ignored](missing.md)\n> ```\n[checked](missing.md)\n',
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for text in examples:
+                with self.subTest(text=text):
+                    findings = self.hygiene.scan_text(text, base_dir=Path(tmp))
+                    self.assertNotIn('unclosed-fence', self.codes(findings))
+                    self.assertEqual([5], [f.line for f in findings
+                                           if f.check == 'broken-relative-link'])
+
+    def test_explicit_quote_markers_keep_blank_lines_inside_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = self.hygiene.scan_text(
+                '> ```\n> [ignored](missing.md)\n>\n> [ignored](missing.md)\n> ```\n',
+                base_dir=Path(tmp))
+            self.assertNotIn('unclosed-fence', self.codes(findings))
+            self.assertNotIn('broken-relative-link', self.codes(findings))
+
+    def test_quoted_unclosed_fence_at_eof_keeps_its_diagnostic(self):
+        for ending in ('', '\n'):
+            with self.subTest(ending=ending):
+                findings = self.hygiene.scan_text('> ```\n> code' + ending)
+                self.assertIn('unclosed-fence', self.codes(findings))
+
     def test_checks_relative_links_outside_code_fences(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -203,6 +271,101 @@ class TextHygieneTest(unittest.TestCase):
         findings = self.hygiene.scan_text(
             '    [doc](missing.md)\n', base_dir=Path(tempfile.gettempdir()))
         self.assertNotIn('broken-relative-link', self.codes(findings))
+
+    def test_quote_indented_code_link_is_not_prose(self):
+        # CommonMark example 252: four columns are code, three remain prose.
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = self.hygiene.scan_text(
+                '>     [code](missing.md)\n\n>    [prose](missing.md)\n',
+                base_dir=Path(tmp))
+            self.assertEqual([3], [f.line for f in findings
+                                   if f.check == 'broken-relative-link'])
+
+    def test_quote_and_list_indentation_stays_in_its_container(self):
+        examples = (
+            ('- >     [code](missing.md)\n\n    [prose](missing.md)\n', [3]),
+            ('- Item\n\n  >     [code](missing.md)\n\n    [prose](missing.md)\n', [5]),
+            ('> - Item\n>\n>       [code](missing.md)\n', []),
+            ('> - Item\n>\n>     [prose](missing.md)\n', [3]),
+            ('> - Item\n\n    [code](missing.md)\n', []),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for text, expected in examples:
+                with self.subTest(text=text):
+                    findings = self.hygiene.scan_text(text, base_dir=Path(tmp))
+                    self.assertEqual(expected, [f.line for f in findings
+                                                if f.check == 'broken-relative-link'])
+
+    def test_quote_code_state_ends_at_its_container(self):
+        examples = (
+            ('Paragraph\n>     [code](missing.md)\n', []),
+            ('> Paragraph\n>\n>     [code](missing.md)\n', []),
+            ('>     [code](missing.md)\n[prose](missing.md)\n', [2]),
+            ('> >     [code](missing.md)\n> [prose](missing.md)\n', [2]),
+            ('> Paragraph\n> >     [code](missing.md)\n', []),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for text, expected in examples:
+                with self.subTest(text=text):
+                    findings = self.hygiene.scan_text(text, base_dir=Path(tmp))
+                    self.assertEqual(expected, [f.line for f in findings
+                                                if f.check == 'broken-relative-link'])
+
+    def test_quote_indentation_does_not_interrupt_a_paragraph(self):
+        examples = (
+            ('> Paragraph\n>     [prose](missing.md)\n', [2]),
+            ('> Paragraph\nlazy\n    [prose](missing.md)\n', [3]),
+            ('> > Paragraph\n> lazy\n>     [prose](missing.md)\n', [3]),
+            ('> - Item\nlazy\n\n    [code](missing.md)\n', []),
+            ('- > Paragraph\nlazy\n\n    [prose](missing.md)\n', [4]),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for text, expected in examples:
+                with self.subTest(text=text):
+                    findings = self.hygiene.scan_text(text, base_dir=Path(tmp))
+                    self.assertEqual(expected, [f.line for f in findings
+                                                if f.check == 'broken-relative-link'])
+
+    def test_list_continuation_link_is_prose(self):
+        examples = (
+            '- Step\n\n    [broken](missing.md)\n',
+            '1. Step\n\n    [broken](missing.md)\n',
+            '100. Step\n\n        [broken](missing.md)\n',
+            '- Outer\n    - Inner\n\n        [broken](missing.md)\n',
+            '- - Step\n\n      [broken](missing.md)\n',
+            '- 1. Step\n\n      [broken](missing.md)\n',
+            '1. - Step\n\n      [broken](missing.md)\n',
+            '- Step\n\n  ```\n  example\n  ```\n\n    [broken](missing.md)\n',
+            '- Step\nlazy continuation\n\n    [broken](missing.md)\n',
+            '-\n  text\n\n    [broken](missing.md)\n',
+        )
+        for text in examples:
+            with self.subTest(text=text):
+                findings = self.hygiene.scan_text(
+                    text, base_dir=Path(tempfile.gettempdir()))
+                self.assertIn('broken-relative-link', self.codes(findings))
+
+    def test_list_indented_code_link_is_not_prose(self):
+        examples = (
+            '- Step\n\n      [example](missing.md)\n',
+            '1. Step\n\n       [example](missing.md)\n',
+            '- Outer\n    - Inner\n\n          [example](missing.md)\n',
+            '- Step\n\nOutside\n\n    [example](missing.md)\n',
+            '- - -\n\n    [example](missing.md)\n',
+            '- Step\n\n```\nexample\n```\n\n    [example](missing.md)\n',
+            'Paragraph\n2. more text\n\n    [example](missing.md)\n',
+            '-\n\n     [example](missing.md)\n',
+            '- Step\n\n  -\n\n       [example](missing.md)\n',
+        )
+        for text in examples:
+            with self.subTest(text=text):
+                findings = self.hygiene.scan_text(
+                    text, base_dir=Path(tempfile.gettempdir()))
+                self.assertNotIn('broken-relative-link', self.codes(findings))
+
+    def test_empty_list_item_can_be_followed_by_top_level_paragraph(self):
+        findings = self.hygiene.scan_text('-\nOutside\n\n')
+        self.assertEqual([], findings)
 
     def test_external_anchor_target_is_not_read(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -345,6 +508,51 @@ class TextHygieneTest(unittest.TestCase):
             result = self.run_cli(scan_root)
             self.assertEqual(1, result.stdout.count('zero-width-format'), result.stdout)
             self.assertIn('scan-skipped', result.stdout)
+
+    def test_anchor_in_linked_skill_is_checked_before_traversing_skill(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            entity = base / 'entity'
+            entity.mkdir()
+            (entity / 'SKILL.md').write_text('# Valid\n')
+            root = base / 'root'
+            root.mkdir()
+            (root / 'README.md').write_text('[Documentation](linked/SKILL.md#valid)\n')
+            (root / 'linked').symlink_to(entity, target_is_directory=True)
+            result = self.run_cli('--strict', '--json', root)
+            self.assertEqual([], json.loads(result.stdout))
+            self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_anchor_checks_share_all_explicit_scan_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            first, second = base / 'first', base / 'second'
+            first.mkdir()
+            second.mkdir()
+            source = first / 'source.md'
+            source.write_text('[Documentation](../second/target.md#valid)\n')
+            target = second / 'target.md'
+            target.write_text('# Valid\n')
+            for paths in ((first, second), (second, first), (source, target), (target, source)):
+                with self.subTest(paths=paths):
+                    result = self.run_cli('--strict', '--json', *paths)
+                    self.assertEqual([], json.loads(result.stdout))
+                    self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_anchor_in_unapproved_link_target_remains_unchecked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            outside = base / 'outside'
+            outside.mkdir()
+            (outside / 'target.md').write_bytes(b'\xff')
+            root = base / 'root'
+            root.mkdir()
+            (root / 'README.md').write_text('[Documentation](linked/target.md#valid)\n')
+            (root / 'linked').symlink_to(outside, target_is_directory=True)
+            result = self.run_cli('--strict', '--json', root)
+            checks = {item['check'] for item in json.loads(result.stdout)}
+            self.assertEqual({'anchor-unchecked', 'scan-skipped'}, checks)
+            self.assertEqual(1, result.returncode, result.stderr)
 
     def test_json_parse_error_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -55,6 +55,26 @@ class WorkflowTest(unittest.TestCase):
         spec.loader.exec_module(wf)
         return wf
 
+    def test_install_includes_migrated_rule_skills(self):
+        names = ('acceptance-checks', 'background-tasks')
+        for name in names:
+            published = ROOT / 'skills' / name
+            if published.is_dir():
+                shutil.copytree(published, self.repo / 'skills' / name)
+        self.bootstrap()
+        for name in names:
+            with self.subTest(skill=name):
+                source = self.home / '.cc-switch/skills' / name
+                self.assertTrue((source / 'SKILL.md').is_file(),
+                                f'migrated rules missing from installation: {name}')
+                expected = (ROOT / 'skills' / name / 'SKILL.md').read_bytes()
+                self.assertEqual((source / 'SKILL.md').read_bytes(), expected)
+                for host in ('.agents/skills', '.claude/skills'):
+                    entry = self.home / host / name
+                    self.assertTrue(entry.is_symlink())
+                    self.assertEqual(entry.resolve(), source)
+                    self.assertEqual((entry / 'SKILL.md').read_bytes(), expected)
+
     def test_fixture_isolates_inherited_git_environment(self):
         from unittest.mock import patch
         external_index = self.home / 'external-index'

@@ -1,6 +1,6 @@
 # agent-workflow
 
-个人全局规范与六个自建 skill 的发布副本。**本机运行实体是日常编辑源，仓库用于审阅、版本管理和分发。** 上游套件只引用，不改写或打包进本仓。
+个人全局规范与自建 skills 的发布副本。**本机运行实体是日常编辑源，仓库用于审阅、版本管理和分发。** 上游套件只引用，不改写或打包进本仓。
 
 ## 维护边界
 
@@ -10,6 +10,9 @@
 - `code-audit`：存量代码的分镜头覆盖审查；机械化先扫 + 不变量清单 + 并行镜头 + 证据分级。
 - `decluttering-text`：精简 skills、规则文件、技术文档、注释与提交说明中的 AI 味、冗余和双读者障碍；先接项目 linter，再按文件类型扫描；机械检查只报告，语义改动以保真为先。
 - `cc-switch-cli`：用 cc-switch CLI 做 Skills 安装、启停、共享链接和宿主可见性对账；写技能后的部署验证按管理状态、文件入口和实际发现分层进行。
+- `acceptance-checks`：承载从全局规范迁出的视觉、UI 数据与隔离测试验收细则。
+- `background-tasks`：承载从全局规范迁出的后台任务查重、登记、监督和收尾规则。
+- `test-dashboard`：共用离线页面模板和 Playwright JSON / JUnit XML 适配器；项目保留来源配置和特有采集器，展示计划测试、探索记录、缺口与失败证据。
 - `AGENTS.md`：跨项目的沟通、授权、验证和技能选择规则；项目特有约束仍由用户维护在项目内。
 
 工作流调整依据 [OpenAI 关于 skills、AGENTS.md 与任务边界的建议](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)：减少无关常驻指令，按需读取资料，并明确何时继续、何时停下。不绑定特定模型，也不移除用户的安全与写入授权边界。
@@ -26,7 +29,7 @@ bash ~/github/agent-workflow/install.sh
 
 | 内容 | 本机编辑源 | 宿主入口 |
 |---|---|---|
-| 本仓六个 skills | `~/.cc-switch/skills/<name>/` 实体目录 | `~/.agents/skills/`、`~/.claude/skills/` 中的链接 |
+| 本仓维护的 skills | `~/.cc-switch/skills/<name>/` 实体目录 | `~/.agents/skills/`、`~/.claude/skills/` 中的链接 |
 | 全局规范 | `~/.claude/CLAUDE.md` 实体文件 | `~/.agents/AGENTS.md`、`$CODEX_HOME/AGENTS.md` 的链接；未设置 CODEX_HOME 时为 `~/.codex/AGENTS.md` |
 
 安装仅在编辑源缺失时从仓库复制；已有编辑源保留，不用仓库旧版本覆盖本机工作。宿主已有同目标链接时不变；实体文件、不同目标链接、断链均保留并报告冲突。旧版安装若让编辑源链接回仓库，会报告布局不一致，不自动迁移。冲突返回非零，不能当作完整安装成功。新建技能使用本次独占的临时目录，只清理本次创建的资源，保留既有同名临时目录。新建全局规范也先完整写入独占临时文件再原子发布，失败不留下截断的编辑源。
@@ -89,6 +92,30 @@ npx skills add HKUSTDial/Supervisor-Skills@vibe-research-workflow -g -y
 任务请求说明目标、材料位置、不可改变的约束和完成标准即可。例如：“修复同步脚本遗漏辅助文件的问题，保留已有冲突文件；完成隔离测试、检查差异并本地提交，不 push。” 不要求先读全库或固定经过每一种 skill。
 
 方案或文档写入范围获批后，在该范围内持续完成实现、验证、失败修复和交付。改变方向、明显扩大成本、删除既有产物或外发时重新确认。
+
+多 agent 协作由用户明确要求，或沿用此前已批准的协作任务启用；任务复杂、日志多或可能并行本身不启用协作。
+总规范只保留触发句，已安装的 `agent-collaboration` 按需加载协作契约，分别路由原生 subagent 和跨 CLI 会话。
+角色绑定、负责人固定职责、worker 执行、降级、回传与恢复均由协作契约承载，不在全局正文重复展开。
+
+专项约定按任务加载：设计收口由已有 `decision-closure` 承接；代码修改或审查由 `best-practices`
+读取代码维护参考；建改技能由 `auditing-skills` 读取查重、来源与分级验证约定。只在需要时读取正文及引用，
+不用 `@` 导入把全部流程重新常驻加载，也不为此改写上游套件。
+
+## 测试面板接入
+
+多项目共用页面由本地 `~/github/test-dashboard` 服务提供，复用本 skill 的内存采集与渲染
+接口；项目只登记配置路径。启动方式、依赖边界和刷新说明见
+[共用查看服务](skills/test-dashboard/references/shared-viewer.md)。服务读取已有报告并在
+内存中刷新，不执行测试，也不覆盖项目的离线快照。
+
+页面与解析器集中在 `test-dashboard`，项目不复制维护 HTML/CSS/JS。初始化配置后，按本项目实际报告位置调整来源，再刷新自包含 HTML 快照：
+
+```bash
+python3 ~/.agents/skills/test-dashboard/scripts/dashboard_project.py init --root /path/to/project --name "Project"
+python3 ~/.agents/skills/test-dashboard/scripts/dashboard_project.py build --config /path/to/project/.test-dashboard/config.json
+```
+
+`build` 只读已有报告，不执行测试或配置中的命令。特殊材料先由项目采集器产生 v1 JSON，再作为 `normalized` 来源接入；已有 v1 JSON 也可继续使用 `render_dashboard.py`。模板更新后显式重建，既有 HTML 仍是原结果快照。配置、来源状态与完整操作见 [项目接入](skills/test-dashboard/references/project-setup.md)。
 
 ## 验证与公开范围
 

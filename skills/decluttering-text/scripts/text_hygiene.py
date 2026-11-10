@@ -69,7 +69,8 @@ MAX_FILE_BYTES = 2_000_000
 LONG_LINE_WIDTH = 120
 DUPLICATE_MIN_CHARS = 80
 
-FENCE = re.compile(r'^(?: {0,3}> ?)* {0,3}(?P<marker>`{3,}|~{3,})(?P<info>.*)$')
+QUOTE_PREFIX = re.compile(r'^(?: {0,3}> ?)*')
+FENCE = re.compile(QUOTE_PREFIX.pattern + r' {0,3}(?P<marker>`{3,}|~{3,})(?P<info>.*)$')
 HEADING = re.compile(r'^(#{1,6})\s+(.*?)\s*#*\s*$')
 REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[([^\]]+)\]:\s*(?:<([^>]+)>|(\S+))')
 REFERENCE_LINK = re.compile(r'\[([^\]]+)\]\[([^\]]*)\]')
@@ -155,19 +156,28 @@ def fence_state(lines, skip_lines=None):
     findings = []
     open_fence = None
     for number, line in enumerate(lines, 1):
-        if number in skip_lines:
+        # split_lines adds a virtual empty line after a terminal newline.
+        if number in skip_lines or (number == len(lines) and not line):
             continue
+        quote_depth = QUOTE_PREFIX.match(line).group().count('>')
+        if open_fence is not None and quote_depth < open_fence[3]:
+            # A quoted fence ends with its container; rescan outer prose normally.
+            open_fence = None
         match = FENCE.match(line)
         if open_fence is None:
             if match:
                 marker = match.group('marker')
-                open_fence = (marker[0], len(marker), number)
+                # CommonMark forbids backticks in a backtick fence's info string.
+                if marker[0] == '`' and '`' in match.group('info'):
+                    continue
+                open_fence = (marker[0], len(marker), number, quote_depth)
                 code_lines.add(number)
             continue
         code_lines.add(number)
         if match:
             marker = match.group('marker')
-            if (marker[0] == open_fence[0] and len(marker) >= open_fence[1]
+            if (quote_depth == open_fence[3]
+                    and marker[0] == open_fence[0] and len(marker) >= open_fence[1]
                     and not match.group('info').strip()):
                 open_fence = None
     if open_fence is not None:
@@ -683,26 +693,120 @@ def indented_code_lines(lines, skip_lines):
     code_lines = set()
     in_code = False
     previous_blank = True
+    list_indents = []
+    in_paragraph = False
+    empty_item = False
+    list_marker = re.compile(r' *(?P<marker>[-+*]|[0-9]{1,9}[.)])(?P<pad> +|$)')
+    quote_scopes = []
+
+    def line_start(expanded, indent):
+        marker = list_marker.match(expanded)
+        sibling_item = bool(list_indents and indent < list_indents[-1])
+        if marker and in_paragraph and not sibling_item:
+            value = marker.group('marker')
+            if (value[0].isdigit() and value[:-1] != '1') or not expanded[marker.end():].strip():
+                marker = None  # Only nonempty bullets or an ordered start of 1 interrupt prose.
+        thematic_break = re.fullmatch(r' *(?:(?:- *){3,}|(?:\* *){3,}|(?:_ *){3,})', expanded)
+        if thematic_break:
+            marker = None
+        block_start = bool(
+            marker or thematic_break or re.match(r' {0,3}(?:#{1,6}\s|>|`{3,}|~{3,})', expanded))
+        return marker, block_start
+
     for number, line in enumerate(lines, 1):
-        if number in skip_lines:
-            in_code = False
-            previous_blank = True
-            continue
-        indented = bool(re.match(r'^(?: {4}|\t)', line))
-        if indented:
-            if in_code or previous_blank:
-                code_lines.add(number)
-                in_code = True
+        expanded = line.expandtabs(4)
+        matched_quotes = 0
+        for base_indent, _ in quote_scopes:
+            quote = re.match(r' {%d,%d}> ?' % (base_indent, base_indent + 3), expanded)
+            if quote is None:
+                break
+            expanded = expanded[quote.end():]
+            matched_quotes += 1
+        if matched_quotes < len(quote_scopes):
+            indent = len(expanded) - len(expanded.lstrip(' '))
+            _, block_start = line_start(expanded, indent)
+            lazy = (in_paragraph and expanded.strip() and not block_start
+                    and number not in skip_lines)
+            if not lazy:
+                while len(quote_scopes) > matched_quotes:
+                    _, list_indents = quote_scopes.pop()
+                in_code = in_paragraph = empty_item = False
+                previous_blank = True
+
+        # Each quote has its own paragraph and list state. A missing marker only
+        # keeps that state for lazy paragraph continuation, never for code.
+        while True:
+            indent = len(expanded) - len(expanded.lstrip(' '))
+            if number in skip_lines:
+                if number - 1 not in skip_lines:
+                    while list_indents and indent < list_indents[-1]:
+                        list_indents.pop()
+                in_code = False
+                in_paragraph = False
+                empty_item = False
+                previous_blank = True
+                break
+            if not expanded.strip():
+                if empty_item:
+                    list_indents.pop()
+                    empty_item = False
+                if in_code:
+                    code_lines.add(number)
+                in_paragraph = False
+                previous_blank = True
+                break
+            empty_item = False
+            marker, block_start = line_start(expanded, indent)
+            while list_indents and indent < list_indents[-1]:
+                if not previous_blank and not in_code and not block_start:
+                    break  # A lazy paragraph continuation can omit the list indentation.
+                list_indents.pop()
+            content_indent = list_indents[-1] if list_indents else 0
+            list_item = marker and indent - content_indent < 4
+            if list_item:
+                while marker:
+                    padding = len(marker.group('pad'))
+                    content_indent = marker.end() - padding + (padding if 1 <= padding <= 4 else 1)
+                    list_indents.append(content_indent)
+                    content = expanded[marker.end():]
+                    empty_item = not content.strip()
+                    in_code = padding > 4 and not empty_item
+                    if in_code:
+                        code_lines.add(number)
+                    in_paragraph = not empty_item and not in_code and not re.match(
+                        r' {0,3}(?:#{1,6}\s|>|`{3,}|~{3,})', content)
+                    previous_blank = empty_item
+                    # A single line can open multiple containers, e.g. "- 1. Step".
+                    nested = list_marker.match(expanded, content_indent)
+                    if in_code or not nested or nested.start('marker') - content_indent > 3:
+                        break
+                    marker = nested
+            quote_start = content_indent if list_item else 0
+            quote_indent = 0 if list_item else content_indent
+            quote = re.match(r' {%d,%d}> ?' % (quote_indent, quote_indent + 3),
+                             expanded[quote_start:])
+            if quote and not (list_item and in_code):
+                quote_scopes.append((content_indent, list_indents))
+                list_indents = []
+                in_code = in_paragraph = empty_item = False
+                previous_blank = True
+                expanded = expanded[quote_start + quote.end():]
+                continue
+            if list_item:
+                break
+            # Four extra columns start code relative to the current list item's content.
+            indented = indent - content_indent >= 4
+            if indented:
+                if in_code or previous_blank:
+                    code_lines.add(number)
+                    in_code = True
+                else:
+                    in_code = False
             else:
                 in_code = False
-        elif not line.strip():
-            if in_code:
-                code_lines.add(number)
-            previous_blank = True
-            continue
-        else:
-            in_code = False
-        previous_blank = False
+            in_paragraph = not in_code and not block_start
+            previous_blank = False
+            break
     return code_lines
 
 
@@ -870,17 +974,22 @@ def main(argv=None):
     scanned = 0
     skipped_count = 0
     failed = 0
+    allowed_roots = set()
+    scan_plan = []
     for path in args.paths:
         if path.is_file():
             targets = [path]
             explicit = True
-            allowed_roots = {path.parent.resolve(), path.resolve().parent}
+            allowed_roots.update({path.parent.resolve(), path.resolve().parent})
         else:
             explicit = False
-            allowed_roots = {path.resolve() if path.is_dir() else path.parent.resolve()}
-            targets = scan_targets(
+            allowed_roots.add(path.resolve() if path.is_dir() else path.parent.resolve())
+            targets = list(scan_targets(
                 path, args.exclude, args.include_generated, walk_errors,
-                walk_skipped, allowed_roots)
+                walk_skipped, allowed_roots))
+        scan_plan.append((targets, explicit))
+    # Collect approved roots and trusted skill links before checking any anchor.
+    for targets, explicit in scan_plan:
         for target in targets:
             target_findings = scan_file(
                 target, max_width=args.max_line_width,
